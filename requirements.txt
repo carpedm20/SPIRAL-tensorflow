@@ -1,0 +1,6 @@
+ipdb
+tqdm
+numpy
+pillow
+pathlib
+future-fstrings
