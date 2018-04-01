@@ -34,7 +34,7 @@ To train a **SPIARL** model:
 
 ## Results
 
-![model](assets/mnist_in_progress.png)
+![model](assets/mnist_in_progress1.png) ![model](assets/mnist_in_progress2.png)
 
 (in progress)
 

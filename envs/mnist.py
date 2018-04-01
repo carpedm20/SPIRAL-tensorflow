@@ -11,8 +11,8 @@ from PIL import Image, ImageDraw
 sys.path.append('libs/mypaint')
 from lib import surface, tiledsurface, brush
 
-import utils as ut
 from . import utils
+from .mypaint_utils import *
 from .base import Environment
 
 
@@ -65,9 +65,7 @@ class MNIST(Environment):
             self.colors = np.array(self.colors) / 255.
 
         self.controls = utils.uniform_locations(
-                self.screen_size, self.location_size, 0,
-                normalize=True)
-        self.controls /= self.location_size
+                self.screen_size, self.location_size, 0)
 
         self.ends = utils.uniform_locations(
                 self.screen_size, self.location_size, 0)
@@ -117,21 +115,31 @@ class MNIST(Environment):
         if jump:
             pressure = 0
 
-        self.b.stroke_to(
-                self.s.backend,
-                x, y,
-                pressure,
-                -0.25, 0.75,
-                dtime)
+        if False:
+            self.b.stroke_to(
+                    self.s.backend,
+                    x, y,
+                    pressure,
+                    -0.25, 0.75,
+                    dtime)
+        else:
+            self.curve(c_x, c_y, 0, 0, x, y)
 
         self.s.end_atomic()
         self.s.begin_atomic()
 
-    def _curve(self):
-        model = self.s.backend
+    
+    # Throughout this module these conventions are used:
+    # sx, sy = starting point
+    # ex, ey = end point
+    # kx, ky = curve point from last line
+    # lx, ly = last point from InteractionMode update
+    def curve(self, cx, cy, sx, sy, ex, ey):
+        #entry_p, midpoint_p, junk, prange2, head, tail
+        entry_p, midpoint_p, prange1, prange2, h, t = \
+                0.1, 0.1, 0.1, 0.1, 0.0001, 0.0001
 
         points_in_curve = 100
-        entry_p, midpoint_p, prange1, prange2, h, t = self.line_settings()
         mx, my = midpoint(sx, sy, ex, ey)
         length, nx, ny = length_and_normal(mx, my, cx, cy)
         cx, cy = multiply_add(mx, my, nx, ny, length*2)
@@ -142,6 +150,7 @@ class MNIST(Environment):
         tail = points_in_curve * t
         tail_range = int(tail)+1
         tail_length = points_in_curve - tail
+
         # Beginning
         px, py = point_on_curve_1(1, cx, cy, sx, sy, x1, y1, x2, y2)
         length, nx, ny = length_and_normal(sx, sy, px, py)
@@ -165,6 +174,15 @@ class MNIST(Environment):
             px, py = point_on_curve_1(i, cx, cy, sx, sy, x1, y1, x2, y2)
             pressure = abs((i-tail)/tail_length * prange2 + midpoint_p)
             self._stroke_to(px, py, pressure)
+
+    def _stroke_to(self, x, y, pressure):
+        duration = 0.001
+        self.b.stroke_to(
+                self.s.backend,
+                x, y,
+                pressure,
+                0.0, 0.0,
+                duration)
 
     def get_random_target(self):
         return None
@@ -214,9 +232,10 @@ class SimpleMNIST(MNIST):
 
 
 if __name__ == '__main__':
+    import utils as ut
     from config import get_args
-    args = get_args()
 
+    args = get_args()
     ut.train.set_global_seed(args.seed)
 
     env = SimpleMNIST(args)
