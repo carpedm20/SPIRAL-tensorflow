@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw
 sys.path.append('libs/mypaint')
 from lib import surface, tiledsurface, brush
 
+import utils as ut
 from . import utils
 from .base import Environment
 
@@ -18,10 +19,10 @@ from .base import Environment
 class MNIST(Environment):
 
     action_sizes = {
-            'pressure': [2],
-            #'color': [4],
-            'size': [2],
+            'pressure': [4],
             'jump': [2],
+            #'color': [4],
+            #'size': [2],
             'control': None,
             'end': None,
     }
@@ -48,7 +49,7 @@ class MNIST(Environment):
                     self.sizes[:self.action_sizes['size'][0]]
 
         # pressure
-        self.pressures = np.arange(1.0, 0.9, -0.01)
+        self.pressures = np.arange(0.8, 0, -0.2)
         if 'pressure' in self.action_sizes:
             self.pressures = \
                     self.pressures[:self.action_sizes['pressure'][0]]
@@ -79,14 +80,16 @@ class MNIST(Environment):
 
         self.s = tiledsurface.Surface()
         self.s.flood_fill(0, 0, (255, 255, 255), (0, 0, 64, 64), 0, self.s)
+        self.s.begin_atomic()
 
         self._step = 0
         return self.state, self.random_target
 
-    def draw(self, ac, s=None, dtime=0.05):
+    def draw(self, ac, s=None, dtime=1):
         if s is None:
             s = self.s
 
+        jump = 0
         x, y = self.ends[0]
         color = self.colors[0]
         pressure, size = self.pressures[0], self.sizes[0]
@@ -105,20 +108,63 @@ class MNIST(Environment):
                 size = value
             elif name == 'color':
                 color = value
-        
-        self.s.begin_atomic()
+            elif name == 'jump':
+                jump = value
 
         if 'color' in self.action_sizes:
             self.b.brushinfo.set_color_rgb(color)
+
+        if jump:
+            pressure = 0
 
         self.b.stroke_to(
                 self.s.backend,
                 x, y,
                 pressure,
-                c_x, c_y, dtime)
+                -0.25, 0.75,
+                dtime)
 
         self.s.end_atomic()
         self.s.begin_atomic()
+
+    def _curve(self):
+        model = self.s.backend
+
+        points_in_curve = 100
+        entry_p, midpoint_p, prange1, prange2, h, t = self.line_settings()
+        mx, my = midpoint(sx, sy, ex, ey)
+        length, nx, ny = length_and_normal(mx, my, cx, cy)
+        cx, cy = multiply_add(mx, my, nx, ny, length*2)
+        x1, y1 = difference(sx, sy, cx, cy)
+        x2, y2 = difference(cx, cy, ex, ey)
+        head = points_in_curve * h
+        head_range = int(head)+1
+        tail = points_in_curve * t
+        tail_range = int(tail)+1
+        tail_length = points_in_curve - tail
+        # Beginning
+        px, py = point_on_curve_1(1, cx, cy, sx, sy, x1, y1, x2, y2)
+        length, nx, ny = length_and_normal(sx, sy, px, py)
+        bx, by = multiply_add(sx, sy, nx, ny, 0.25)
+        self._stroke_to(bx, by, entry_p)
+        pressure = abs(1/head * prange1 + entry_p)
+        self._stroke_to(px, py, pressure)
+
+        for i in xrange(2, head_range):
+            px, py = point_on_curve_1(i, cx, cy, sx, sy, x1, y1, x2, y2)
+            pressure = abs(i/head * prange1 + entry_p)
+            self._stroke_to(px, py, pressure)
+
+        # Middle
+        for i in xrange(head_range, tail_range):
+            px, py = point_on_curve_1(i, cx, cy, sx, sy, x1, y1, x2, y2)
+            self._stroke_to(px, py, midpoint_p)
+
+        # End
+        for i in xrange(tail_range, points_in_curve+1):
+            px, py = point_on_curve_1(i, cx, cy, sx, sy, x1, y1, x2, y2)
+            pressure = abs((i-tail)/tail_length * prange2 + midpoint_p)
+            self._stroke_to(px, py, pressure)
 
     def get_random_target(self):
         return None
@@ -170,6 +216,8 @@ class SimpleMNIST(MNIST):
 if __name__ == '__main__':
     from config import get_args
     args = get_args()
+
+    ut.train.set_global_seed(args.seed)
 
     env = SimpleMNIST(args)
 
