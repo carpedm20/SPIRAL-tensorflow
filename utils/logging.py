@@ -54,7 +54,7 @@ class JacLogFormatter(logging.Formatter):
 
         if self.log_fout:
             self.__set_fmt(self.date_full + mtxt + self.msg)
-            formatted = super().format(record)
+            formatted = super(JacLogFormatter, self).format(record)
             nr_line = formatted.count('\n') + 1
             if nr_line >= self.max_lines:
                 head, body = formatted.split('\n', 1)
@@ -69,7 +69,7 @@ class JacLogFormatter(logging.Formatter):
             self.log_fout.flush()
 
         self.__set_fmt(self._color_date(self.date) + mcl(mtxt + self.msg))
-        formatted = super().format(record)
+        formatted = super(JacLogFormatter, self).format(record)
         nr_line = formatted.count('\n') + 1
         if nr_line >= self.max_lines:
             lines = formatted.split('\n')
@@ -95,7 +95,7 @@ log_formatter = JacLogFormatter(
         "%(asctime)s:%(levelname)s::%(message)s", "%m-%d %H:%M:%S")
 
 
-def get_logger(name=__file__, level=logging.DEBUG):
+def get_logger(name=__file__, level=logging.INFO):
     logger = logging.getLogger(name)
 
     if getattr(logger, '_init_done__', None):

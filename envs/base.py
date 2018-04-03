@@ -41,3 +41,9 @@ class Environment(object):
     @property
     def initial_action(self):
         return [-1] * len(self.acs)
+
+    def norm(self, img):
+        return (np.array(img) - 127.5) / 127.5
+
+    def denorm(self, img):
+        return img * 127.5 +  127.5

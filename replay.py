@@ -11,10 +11,11 @@ class ReplayBuffer(object):
     def __init__(self, args, observation_shape):
         self.rng = np.random.RandomState(args.seed)
         self.replay_size = args.replay_size
-        self.batch_size = args.discrim_batch_size
+        self.batch_size = args.disc_batch_size
 
         self.idx = 0
-        self.data = np.zeros([self.replay_size] + observation_shape)
+        replay_shape = [self.replay_size] + observation_shape
+        self.data = np.zeros(replay_shape)
 
     def push(self, batches):
         batch_size = len(batches)
@@ -27,8 +28,9 @@ class ReplayBuffer(object):
             self.idx += batch_size
 
     def sample(self, n=None):
-        assert self.idx > n, "not enough data is pushed"
         if n is None:
             n = self.batch_size/2
+        while self.idx < n:
+            pass
         random_idx = self.rng.choice(self.idx, n)
         return self.data[random_idx]

@@ -9,10 +9,11 @@ tc = tf.nn.rnn_cell
 
 class Policy(object):
 
-    def __init__(self, args, env,
+    def __init__(self, args, env, scope_name,
                  image_shape, action_sizes, data_format):
+        self.args = args
         scale = args.scale
-        self.lstm_size = int(args.lstm_size * scale)
+        self.lstm_size = args.lstm_size
 
         if data_format == 'channels_first' and args.dynamic_channel:
             self.image_shape = list(image_shape[-1:] + image_shape[:-1])
@@ -24,138 +25,138 @@ class Policy(object):
 
         action_num = len(action_sizes)
 
-        # [B, max_time, H, W, C]
-        self.x = x = tf.placeholder(
-                tf.float32, [None, None] + self.image_shape, name='x')
-
-        # last is only used for summary
-        x = x[:,:env.episode_length]
-
-        # Flatten multiple episodes
-        # XXX: important difference from openai/universe-starter-agent
-        x_shape = tf.shape(x)
-        batch_size, max_time = x_shape[0], x_shape[1]
-
-        # [B, max_time, action_num]
-        self.ac = ac = tf.placeholder(
-                tf.float32, [None, None, action_num], name='ac')
-
-        if args.conditional:
+        with tf.variable_scope(scope_name) as scope:
             # [B, max_time, H, W, C]
-            self.c = c = tf.placeholder(
-                    tf.float32, [None, None] + self.image_shape, name='c')
-            # TODO: need to get confirmed from the authors
-            x = tf.concat([x, c], axis=-1)
-            x_shape = list(self.image_shape)
-            x_shape[-1] = int(x.get_shape()[-1])
-        else:
-            self.c = None
-            x_shape = self.image_shape
+            self.x = x = tf.placeholder(
+                    tf.float32, [None, None] + self.image_shape, name='x')
 
-        x = tf.reshape(x, [-1] + x_shape)
-        ac = tf.reshape(ac, [-1, action_num])
+            # last is only used for summary
+            x = x[:,:env.episode_length]
 
-        if data_format == 'channels_first' and args.dynamic_channel:
-            x = tf.transpose(x, [0, 3, 1, 2])
+            # Flatten multiple episodes
+            # XXX: important difference from openai/universe-starter-agent
+            x_shape = tf.shape(x)
+            batch_size, max_time = x_shape[0], x_shape[1]
 
-        ################################
-        # Beginning of policy network
-        ################################
+            # [B, max_time, action_num]
+            self.ac = ac = tf.placeholder(
+                    tf.float32, [None, None, action_num], name='ac')
 
-        a_enc = mlp(
-                tf.expand_dims(ac, -1),
-                int(16*scale),
-                name="a_enc")
-        a_concat = tf.reshape(
-                a_enc, [-1, int(16*scale) * action_num])
-        a_fc = tl.dense(
-                a_concat, int(32*scale),
-                activation=tf.nn.relu,
-                name="a_concat_fc")
+            if args.conditional:
+                # [B, max_time, H, W, C]
+                self.c = c = tf.placeholder(
+                        tf.float32, [None, None] + self.image_shape, name='c')
+                # TODO: need to get confirmed from the authors
+                x = tf.concat([x, c], axis=-1)
+                x_shape = list(self.image_shape)
+                x_shape[-1] = int(x.get_shape()[-1])
+            else:
+                self.c = None
+                x_shape = self.image_shape
 
-        # [B, 1, 1, 32]
-        a_expand = tf.expand_dims(tf.expand_dims(a_fc, 1), 1)
-        if data_format == 'channels_first' and args.dynamic_channel:
-            a_expand = tf.transpose(a_expand, [0, 3, 1, 2])
+            x = tf.reshape(x, [-1] + x_shape)
+            ac = tf.reshape(ac, [-1, action_num])
 
-        x_enc = tl.conv2d(
-                x, int(32*scale), 5,
-                padding='same',
-                activation=tf.nn.relu,
-                data_format=self.data_format,
-                name="x_c_enc" if args.conditional else "x_enc")
+            if data_format == 'channels_first' and args.dynamic_channel:
+                x = tf.transpose(x, [0, 3, 1, 2])
 
-        add = x_enc + a_expand
+            ################################
+            # Beginning of policy network
+            ################################
 
-        for idx in range(int(3*scale)):
-            add = tl.conv2d(
-                    add, int(32*scale), 4, strides=(2, 2),
-                    padding='valid',
+            a_enc = mlp(
+                    tf.expand_dims(ac, -1),
+                    int(16),
+                    name="a_enc")
+            a_concat = tf.reshape(
+                    a_enc, [-1, int(16) * action_num])
+            a_fc = tl.dense(
+                    a_concat, int(32),
+                    activation=tf.nn.relu,
+                    name="a_concat_fc")
+
+            # [B, 1, 1, 32]
+            a_expand = tf.expand_dims(tf.expand_dims(a_fc, 1), 1)
+            if data_format == 'channels_first' and args.dynamic_channel:
+                a_expand = tf.transpose(a_expand, [0, 3, 1, 2])
+
+            x_enc = tl.conv2d(
+                    x, int(32), 5,
+                    padding='same',
                     activation=tf.nn.relu,
                     data_format=self.data_format,
-                    name=f"add_enc_{idx}")
+                    name="x_c_enc" if args.conditional else "x_enc")
 
-        for idx in range(int(8*scale)):
-            add = res_block(
-                    add, 32, 3, self.data_format,
-                    name=f"encoder_res_{idx}")
+            add = x_enc + a_expand
 
-        flat = tl.flatten(add)
+            for idx in range(int(3)):
+                add = tl.conv2d(
+                        add, int(32), 4, strides=(2, 2),
+                        padding='valid',
+                        activation=tf.nn.relu,
+                        data_format=self.data_format,
+                        name="add_enc_{}".format(idx))
 
-        out = tl.dense(
-                flat, self.lstm_size,
-                activation=tf.nn.relu,
-                name="flat_fc")
+            for idx in range(int(8*scale)):
+                add = res_block(
+                        add, 32, 3, self.data_format,
+                        name="encoder_res_{}".format(idx))
 
-        # [batch_size, max_time, ...]
-        flat_out = tl.flatten(out)
-        lstm_in_shape = [batch_size, max_time, flat_out.get_shape()[-1]]
-        lstm_in = tf.reshape(flat_out, lstm_in_shape, name="lstm_in")
-        
-        lstm = tc.BasicLSTMCell(self.lstm_size, state_is_tuple=True)
+            flat = tl.flatten(add)
 
-        def make_init(batch_size):
-            c_init = np.zeros((batch_size, lstm.state_size.c), np.float32)
-            h_init = np.zeros((batch_size, lstm.state_size.h), np.float32)
-            return [c_init, h_init]
+            out = tl.dense(
+                    flat, self.lstm_size,
+                    activation=tf.nn.relu,
+                    name="flat_fc")
 
-        self.state_init = ut.misc.keydefaultdict(make_init)
+            # [batch_size, max_time, ...]
+            flat_out = tl.flatten(out)
+            lstm_in_shape = [batch_size, max_time, flat_out.get_shape()[-1]]
+            lstm_in = tf.reshape(flat_out, lstm_in_shape, name="lstm_in")
+            
+            self.lstm = tc.BasicLSTMCell(self.lstm_size, state_is_tuple=True)
 
-        c_in = tf.placeholder(
-                tf.float32,
-                [None, lstm.state_size.c],
-                name="lstm_c_in")
-        h_in = tf.placeholder(
-                tf.float32,
-                [None, lstm.state_size.h],
-                name="lstm_h_in")
-        self.state_in = [c_in, h_in]
-        state_in = tc.LSTMStateTuple(c_in, h_in)
+            def make_init(batch_size):
+                c_init = np.zeros((batch_size, self.lstm.state_size.c), np.float32)
+                h_init = np.zeros((batch_size, self.lstm.state_size.h), np.float32)
+                return [c_init, h_init]
 
-        lstm_out, lstm_state = tf.nn.dynamic_rnn(
-                lstm,
-                # [batch_size, max_time, ...]
-                lstm_in,
-                # [batch_size, cell.state_size]
-                initial_state=state_in,
-                time_major=False)
+            self.state_init = ut.misc.keydefaultdict(make_init)
 
-        self.sample, self.logits = self.decoder(
-                tf.nn.relu(lstm_out), self.action_sizes,
-                self.data_format, scale)
+            c_in = tf.placeholder(
+                    tf.float32,
+                    [None, self.lstm.state_size.c],
+                    name="lstm_c_in")
+            h_in = tf.placeholder(
+                    tf.float32,
+                    [None, self.lstm.state_size.h],
+                    name="lstm_h_in")
+            self.state_in = [c_in, h_in]
+            state_in = tc.LSTMStateTuple(c_in, h_in)
 
-        lstm_c, lstm_h = lstm_state
-        self.state_out = [lstm_c, lstm_h]
+            lstm_out, lstm_state = tf.nn.dynamic_rnn(
+                    self.lstm,
+                    # [batch_size, max_time, ...]
+                    lstm_in,
+                    # [batch_size, cell.state_size]
+                    initial_state=state_in,
+                    time_major=False)
 
-        self.vf = tl.dense(
-                lstm_out, 1,
-                activation=None,
-                name="value")[:,:,0]
-                #kernel_initializer=normalized_columns_initializer(1.0))[:,:,0]
+            # [bach_size, max_time, action_size]
+            self.one_hot_samples, self.samples, self.logits = self.decoder(
+                    tf.nn.relu(lstm_out), self.action_sizes,
+                    self.data_format, self.lstm_size, scale)
 
-        self.var_list = tf.get_collection(
-                tf.GraphKeys.TRAINABLE_VARIABLES,
-                tf.contrib.framework.get_name_scope())
+            lstm_c, lstm_h = lstm_state
+            self.state_out = [lstm_c, lstm_h]
+
+            self.vf = tl.dense(
+                    lstm_out, 1,
+                    activation=None,
+                    name="value")[:,:,0]
+                    #kernel_initializer=normalized_columns_initializer(1.0))[:,:,0]
+
+            self.var_list = tf.trainable_variables(scope=scope_name)
 
     def get_initial_features(self, batch_size, flat=False):
         assert batch_size == 1 and flat, \
@@ -165,8 +166,7 @@ class Policy(object):
             out = [out[0][0], out[1][0]]
         return out
 
-    def act(self, ob, ac, c, h, condition=None):
-        sess = tf.get_default_session()
+    def get_feed_dict(self, ob, ac, c, h, condition):
         feed_dict = {
                 self.x: [[ob]], # fake batch, time axis
                 self.ac: [[ac]],
@@ -175,8 +175,14 @@ class Policy(object):
         }
         if condition is not None:
             feed_dict.update({ self.c: [[condition]] })
+        return feed_dict
 
-        fetches = [self.sample, self.vf] + self.state_out
+    def act(self, ob, ac, c, h, condition=None):
+        sess = tf.get_default_session()
+
+        feed_dict = self.get_feed_dict(ob, ac, c, h, condition)
+
+        fetches = [self.one_hot_samples, self.vf] + self.state_out
         out = sess.run(fetches, feed_dict)
 
         # TODO: need to extract one
@@ -189,31 +195,31 @@ class Policy(object):
             out[idx] = item
         return out
 
-    def decoder(self, z, action_sizes, data_format, scale=1):
+    def decoder(self, z, action_sizes, data_format, lstm_size, scale=1):
         z_shape = tf.shape(z)
         batch_size, max_time = z_shape[0], z_shape[1]
 
         z = tf.reshape(z, [-1, self.lstm_size])
 
-        samples, logits = {}, {}
+        one_hot_samples, samples, logits = {}, {}, {}
 
         for idx, (name, action_size) in enumerate(action_sizes.items()):
-            with tf.variable_scope(f"decoder_{name}"):
+            with tf.variable_scope("decoder_{}".format(name)):
                 if len(action_size) == 1:
                     N = action_size[0]
                     logit = tl.dense(
                             z, N,
                             activation=None,
-                            name=f"action{idx}",
+                            name="action{}".format(idx),
                             kernel_initializer= \
                                     normalized_columns_initializer(0.01))
                 else:
                     # format: NHWC
-                    reshape = tf.reshape(z, [-1, 4, 4, int(16*scale)])
+                    reshape = tf.reshape(z, [-1, 4, 4, int(lstm_size / 16)])
 
                     # format: NHWC
                     res = deconv = tl.conv2d_transpose(
-                            reshape, int(32*scale), 4,
+                            reshape, int(32), 4,
                             strides=(2, 2),
                             padding='same',
                             activation=tf.nn.relu,
@@ -227,13 +233,13 @@ class Policy(object):
                     # format: each
                     for idx in range(int(8*scale)):
                         res = res_block(
-                                res, int(32*scale), 3, data_format,
-                                name=f"decoder_res_{idx}")
+                                res, int(32), 3, data_format,
+                                name="decoder_res_{}".format(idx))
 
                     # format: NHWC
                     deconv = res
                     transposed = False
-                    for idx in range(int(2*scale)):
+                    for idx in range(int(2)):
                         deconv_width = int(deconv.get_shape()[2])
                         if deconv_width == action_size[0]:
                             break
@@ -246,12 +252,12 @@ class Policy(object):
 
                         # format: NHWC
                         deconv = tl.conv2d_transpose(
-                                deconv, int(32*scale), 4,
+                                deconv, int(32), 4,
                                 strides=(2, 2),
                                 padding='same',
                                 activation=tf.nn.relu,
                                 data_format='channels_last',
-                                name=f"deconv_{idx}")
+                                name="deconv_{}".format(idx))
 
                     # format: each
                     if data_format == 'channels_first' and transposed \
@@ -274,18 +280,21 @@ class Policy(object):
 
                 action_one_hot, action = \
                         categorical_sample(logit, np.prod(action_size))
-                samples[name] = tf.reshape(
+                one_hot_samples[name] = tf.reshape(
                         action_one_hot, [batch_size, max_time, -1])
 
-                out = mlp(
-                        tf.expand_dims(action, 1), int(16*scale),
-                        name='sample_mlp')
-                z = tl.dense(
-                        tf.concat([z, out], -1), int(256*scale),
-                        activation=tf.nn.relu,
-                        name="concat_z_fc")
+                if idx < len(action_sizes) - 1:
+                    # this will be feeded to make gradient flows
+                    samples[name] = tf.expand_dims(action, 1)
+                    out = mlp(
+                            samples[name], int(16),
+                            name='sample_mlp')
+                    z = tl.dense(
+                            tf.concat([z, out], -1), int(lstm_size),
+                            activation=tf.nn.relu,
+                            name="concat_z_fc")
 
-        return samples, logits
+        return one_hot_samples, samples, logits
 
     #def value(self, ob, c, h):
     #    sess = tf.get_default_session()
@@ -302,11 +311,11 @@ def mlp(x, dim, hid_dim=64, num_layers=3, name=None):
         x = tl.dense(
                 x, hid_dim,
                 activation=tf.nn.relu,
-                name=f"{name}_{idx}")
+                name="{}_{}".format(name, idx))
     x = tl.dense(
             x, dim,
             activation=tf.nn.relu,
-            name=f"{name}_{idx+1}")
+            name="{}_{}".format(name, idx+1))
     return x
 
 def res_block(x, channel, size, data_format, name):

@@ -1,4 +1,3 @@
-# -*- coding: future_fstrings -*-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -42,14 +41,19 @@ def train(args, server, cluster, env, queue_shapes,
 
     devices = ["/job:ps"]
     if args.task == 0:
-        devices += [f"/job:worker/task:{args.task}/gpu:0", f"/job:worker/task:{args.task}/cpu:0"]
+        devices += ["/job:worker/task:{}/gpu:0".format(args.task),
+                    "/job:worker/task:{}/cpu:0".format(args.task)]
+    elif args.task == 1:
+        devices += ["/job:worker/task:{}/gpu:{}".format(args.task, 1 if args.num_gpu > 1 else 0),
+                    "/job:worker/task:{}/cpu:0".format(args.task)]
     else:
-        devices += [f"/job:worker/task:{args.task}/cpu:0"]
+        devices += ["/job:worker/task:{}/cpu:0".format(args.task)]
 
     config = tf.ConfigProto(device_filters=devices, allow_soft_placement=True)
     logger.info("Events directory: %s_%s", args.load_path, args.task)
 
-    summary_writer = tf.summary.FileWriter(f"{args.load_path}_{args.task}")
+    summary_writer = tf.summary.FileWriter(
+            "{}_{}".format(args.load_path, args.task))
     agent.summary_writer = summary_writer
 
     sv = tf.train.Supervisor(
@@ -60,7 +64,9 @@ def train(args, server, cluster, env, queue_shapes,
             init_op=init_op,
             init_fn=init_fn,
             summary_writer=summary_writer,
-            ready_op=tf.report_uninitialized_variables(variables_to_save),
+            # very useful when sv.managed_session hang
+            ready_op=tf.constant([], dtype=tf.string),
+            #ready_op=tf.report_uninitialized_variables(variables_to_save),
             global_step=agent.policy_step,
             save_model_secs=30,
             save_summaries_secs=30)
@@ -74,18 +80,15 @@ def train(args, server, cluster, env, queue_shapes,
 
     with sv.managed_session(server.target, config=config) as sess, \
             sess.as_default():
-
-        def sync():
-            #logger.error("SYNC")
-            sess.run(agent.sync)
-
         ###############################
         # Run thread
         ###############################
+
         if args.task == 1 and args.loss == 'gan':
-            agent.start_replay_thread(sess)
+            sess.run(agent.disc_sync)
+            agent.start_replay_thread(sess, summary_writer)
         elif args.task >= 1:
-            sync()
+            sess.run(agent.policy_sync)
             agent.start_worker_thread(sess, summary_writer)
 
         policy_step = sess.run(agent.policy_step)

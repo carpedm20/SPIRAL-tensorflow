@@ -16,5 +16,5 @@ def create_env(args):
     elif env == 'mnist':
         env = MNIST(args)
     else:
-        raise Exception(f"Unkown environment: {args.env}")
+        raise Exception("Unkown environment: {}".format(args.env))
     return env

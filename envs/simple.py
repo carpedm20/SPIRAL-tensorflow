@@ -1,4 +1,3 @@
-# -*- coding: future_fstrings -*-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -13,9 +12,9 @@ from .base import Environment
 class Simple(Environment):
 
     action_sizes = {
-            #'color': [3],
-            #'shape': [2],
-            'location': None,
+            'color': [1],
+            'shape': [2],
+            #'location': None,
     }
 
     def __init__(self, args):
@@ -30,9 +29,10 @@ class Simple(Environment):
         self.background_color = (255, 255, 255)
 
         self.colors = [
-                (102, 217, 232), # cyan 3
+                (0, 0, 0), # black
                 (173, 181, 189), # gray 5
                 (255, 224, 102), # yellow 3
+                #(102, 217, 232), # cyan 3
         ]
         if 'color' in self.action_sizes:
             self.colors = self.colors[:self.action_sizes['color'][0]]
@@ -81,7 +81,7 @@ class Simple(Environment):
         elif shape == 'rectangle':
             drawer.rectangle((x-r, y-r, x+r, y+r), fill=color)
         else:
-            raise Exception(f"Unkown shape: {shape}")
+            raise Exception("Unkown shape: {}".format(shape))
 
     def get_random_target(self):
         image = Image.new(
@@ -92,7 +92,11 @@ class Simple(Environment):
         for _ in range(self.episode_length):
             ac = self.random_action(locations=locations)
             self.draw(ac, drawer)
-            locations.append(ac[self.ac_idx['location']])
+            if 'location' in self.ac_idx:
+                locations.append(ac[self.ac_idx['location']])
+            else:
+                locations.append(self.locations[0])
+
         return np.array(self.norm(image))
 
     def random_action(self, locations=[]):
@@ -121,6 +125,10 @@ class Simple(Environment):
                 reward = None
         else:
             reward = 0
+
+        # XXX: DEBUG
+        if reward == 0: reward = 1
+
         # state, reward, terminal, info
         return self.state, reward, terminal, {}
 
@@ -131,11 +139,6 @@ class Simple(Environment):
     def state(self):
         return np.array(self.norm(self.image))
 
-    def norm(self, img):
-        return (np.array(img) - 127.5) / 127.5
-
-    def denorm(self, img):
-        return img * 127.5 +  127.5
 
 if __name__ == '__main__':
     from config import get_args
@@ -149,11 +152,11 @@ if __name__ == '__main__':
 
         while True:
             action = env.random_action()
-            print(f"[Step {step}] ac: {action}")
+            print("[Step {}] ac: {}".format(step, action))
             state, reward, terminal, info = env.step(action)
             step += 1
             
             if terminal:
-                print(f"Ep #{ep_idx} finished.")
-                env.save_image(f"simple{ep_idx}.png")
+                print("Ep #{} finished.".format(ep_idx))
+                env.save_image("simple{}.png".format(ep_idx))
                 break

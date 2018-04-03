@@ -4,39 +4,44 @@ from __future__ import print_function
 
 import sys
 import numpy as np
+from tqdm import tqdm
 import tensorflow as tf
 from PIL import Image, ImageDraw
+from collections import defaultdict
 
 # MyPaint
 sys.path.append('libs/mypaint')
 from lib import surface, tiledsurface, brush
 
+import utils as ut
 from . import utils
 from .mypaint_utils import *
 from .base import Environment
 
 
 class MNIST(Environment):
+    midpoint_pressure = None #0.7
+    head = 0.25
+    tail = 0.75
 
     action_sizes = {
             'pressure': [4],
             'jump': [2],
-            #'color': [4],
             #'size': [2],
             'control': None,
             'end': None,
     }
 
-    mnist = tf.contrib.learn.datasets.DATASETS['mnist']('/tmp/mnist')
-
     def __init__(self, args):
         super(MNIST, self).__init__(args)
+        self.mnist_nums = args.mnist_nums
+        self.colorize = not args.train
 
-        with open('assets/brushes/dry_brush.myb') as fp:
+        self.prepare_mnist()
+
+        with open(args.brush_path) as fp:
             self.bi = brush.BrushInfo(fp.read())
         self.b = brush.Brush(self.bi)
-
-        self.background_color = (255, 255, 255)
 
         # jump
         self.jumps = [0, 1]
@@ -49,20 +54,28 @@ class MNIST(Environment):
                     self.sizes[:self.action_sizes['size'][0]]
 
         # pressure
-        self.pressures = np.arange(0.8, 0, -0.2)
+        self.pressures = np.arange(1.0, 0, -0.2)
         if 'pressure' in self.action_sizes:
             self.pressures = \
                     self.pressures[:self.action_sizes['pressure'][0]]
+
+        self.entry_pressure = 0
+        self.exit_pressure = self.pressures[-1]
 
         self.colors = [
                 (0., 0., 0.), # black
                 (102., 217., 232.), # cyan 3
                 (173., 181., 189.), # gray 5
                 (255., 224., 102.), # yellow 3
+                (229., 153., 247.), # grape 3
+                (99., 230., 190.), # teal 3
+                (255., 192., 120.), # orange 3
+                (255., 168., 168.), # red 3
         ]
+        self.colors = np.array(self.colors) / 255.
+
         if 'color' in self.action_sizes:
             self.colors = self.colors[:self.action_sizes['color'][0]]
-            self.colors = np.array(self.colors) / 255.
 
         self.controls = utils.uniform_locations(
                 self.screen_size, self.location_size, 0)
@@ -72,7 +85,7 @@ class MNIST(Environment):
 
     def reset(self):
         if self.conditional:
-            self.random_target = self.get_random_target()
+            self.random_target = self.get_random_target(num=1, squeeze=True)
         else:
             self.random_target = None
 
@@ -81,6 +94,7 @@ class MNIST(Environment):
         self.s.begin_atomic()
 
         self._step = 0
+        self.s_x, self.s_y = None, None
         return self.state, self.random_target
 
     def draw(self, ac, s=None, dtime=1):
@@ -104,40 +118,44 @@ class MNIST(Environment):
                 pressure = value
             elif name == 'size':
                 size = value
-            elif name == 'color':
-                color = value
             elif name == 'jump':
                 jump = value
 
-        if 'color' in self.action_sizes:
-            self.b.brushinfo.set_color_rgb(color)
+        if self.colorize:
+            self.b.brushinfo.set_color_rgb(self.colors[self._step])
+        if 'size' in self.action_sizes:
+            self.b.set_base_value('radius_logarithmic', size)
 
-        if jump:
+        if self.s_x is None and self.s_y is None:
+            self.s_x, self.s_y = 0, 0
+            pressure = 0
+        if 'jump' in self.action_sizes and jump:
             pressure = 0
 
-        if False:
+        if 'control' not in self.action_sizes:
             self.b.stroke_to(
-                    self.s.backend,
-                    x, y,
-                    pressure,
-                    -0.25, 0.75,
-                    dtime)
+                    self.s.backend, x, y, pressure, 0, 0, dtime)
+        elif pressure == 0:
+            self.b.stroke_to(
+                    self.s.backend, x, y, pressure, c_x, c_y, 0)
         else:
-            self.curve(c_x, c_y, 0, 0, x, y)
+            self.curve(c_x, c_y, self.s_x, self.s_y, x, y, pressure)
+
+        self.s_x, self.s_y = x, y
 
         self.s.end_atomic()
         self.s.begin_atomic()
 
-    
-    # Throughout this module these conventions are used:
+        self.entry_pressure = self.pressures[-1]
+
     # sx, sy = starting point
     # ex, ey = end point
     # kx, ky = curve point from last line
     # lx, ly = last point from InteractionMode update
-    def curve(self, cx, cy, sx, sy, ex, ey):
+    def curve(self, cx, cy, sx, sy, ex, ey, pressure):
         #entry_p, midpoint_p, junk, prange2, head, tail
         entry_p, midpoint_p, prange1, prange2, h, t = \
-                0.1, 0.1, 0.1, 0.1, 0.0001, 0.0001
+                self._line_settings(pressure)
 
         points_in_curve = 100
         mx, my = midpoint(sx, sy, ex, ey)
@@ -184,8 +202,12 @@ class MNIST(Environment):
                 0.0, 0.0,
                 duration)
 
-    def get_random_target(self):
-        return None
+    def get_random_target(self, num=1, squeeze=False):
+        random_idxes = np.random.choice(self.real_data.shape[0], num, replace=False)
+        random_image = self.real_data[random_idxes]
+        if squeeze:
+            random_image = np.squeeze(random_image, 0)
+        return random_image
 
     def step(self, acs):
         self.draw(acs, self.s)
@@ -194,8 +216,8 @@ class MNIST(Environment):
         if terminal:
             if self.conditional:
                 reward = 1
-                #reward = - utils.l2(self.state, self.random_target) \
-                #        / np.prod(self.observation_shape) * 100
+                reward = - utils.l2(self.state, self.random_target) \
+                        / np.prod(self.observation_shape)
             else:
                 reward = None
         else:
@@ -204,17 +226,19 @@ class MNIST(Environment):
         return self.state, reward, terminal, {}
 
     def save_image(self, path):
-        Image.fromarray(self.state).save(path)
+        Image.fromarray(self.image.astype(np.uint8).squeeze()).save(path)
         #self.s.save_as_png(path, alpha=False)
 
     @property
-    def state(self):
+    def image(self):
         rect = [0, 0, self.height, self.width]
         scanline_strips = \
                 surface.scanline_strips_iter(self.s, rect)
-        data = next(scanline_strips)
-        #data[:,:,:3][(255 == data[:,:,3])] = [255, 255, 255]
-        return data
+        return next(scanline_strips)
+
+    @property
+    def state(self):
+        return utils.rgb2gray(self.image)
 
     def get_action_desc(self, ac):
         desc = []
@@ -224,8 +248,66 @@ class MNIST(Environment):
             desc.append("{}: {} ({})".format(name, actual_ac, named_ac))
         return "\n".join(desc)
 
+    def _line_settings(self, midpoint_pressure):
+        p1 = self.entry_pressure
+        p2 = midpoint_pressure
+        p3 = self.exit_pressure
+        if self.head == 0.0001:
+            p1 = p2
+        prange1 = p2 - p1
+        prange2 = p3 - p2
+        return p1, p2, prange1, prange2, self.head, self.tail
+
+    def prepare_mnist(self):
+        ut.io.makedirs(self.args.data_dir)
+
+        # ground truth MNIST data
+        mnist_dir = self.args.data_dir / 'mnist'
+        mnist = tf.contrib.learn.datasets.DATASETS['mnist'](str(mnist_dir))
+
+        pkl_path = mnist_dir / 'mnist_dict.pkl'
+
+        if pkl_path.exists():
+            mnist_dict = ut.io.load_pickle(pkl_path)
+        else:
+            mnist_dict = defaultdict(lambda: defaultdict(list))
+            for name in ['train', 'test', 'valid']:
+                for num in self.args.mnist_nums:
+                    filtered_data = \
+                            mnist.train.images[mnist.train.labels == num]
+                    filtered_data = \
+                            np.reshape(filtered_data, [-1, 28, 28])
+
+                    iterator = tqdm(filtered_data,
+                                    desc="[{}] Processing {}".format(name, num))
+                    for idx, image in enumerate(iterator):
+                        # XXX: don't know which way would be the best
+                        resized_image = ut.io.imresize(
+                                image, [self.height, self.width],
+                                interp='cubic')
+                        mnist_dict[name][num].append(
+                                np.expand_dims(resized_image, -1))
+            ut.io.dump_pickle(pkl_path, mnist_dict)
+
+        mnist_dict = mnist_dict['train' if self.args.train else 'test']
+
+        data = []
+        for num in self.args.mnist_nums:
+            data.append(mnist_dict[int(num)])
+
+        self.real_data = 255 - np.concatenate([d for d in data])
+
 
 class SimpleMNIST(MNIST):
+
+    action_sizes = {
+            #'pressure': [4],
+            #'jump': [2],
+            #'color': [4],
+            #'size': [2],
+            #'control': None,
+            'end': None,
+    }
 
     def __init__(self, args):
         super(SimpleMNIST, self).__init__(args)
@@ -238,11 +320,20 @@ if __name__ == '__main__':
     args = get_args()
     ut.train.set_global_seed(args.seed)
 
-    env = SimpleMNIST(args)
+    env = args.env.lower()
+
+    if env == 'mnist':
+        env = MNIST(args)
+    elif env == 'simple_mnist':
+        env = SimpleMNIST(args)
+    else:
+        raise Exception("Unkown environment: {}".format(args.env))
 
     for ep_idx in range(10):
         step = 0
         env.reset()
+
+        env.save_image("mnist{}_{}.png".format(ep_idx, step))
 
         while True:
             action = env.random_action()
@@ -250,8 +341,9 @@ if __name__ == '__main__':
                     step, env.get_action_desc(action)))
             state, reward, terminal, info = env.step(action)
             step += 1
+
+            env.save_image("mnist{}_{}.png".format(ep_idx, step))
             
             if terminal:
-                print("Ep #{} finished.".format(ep_idx))
-                env.save_image("mnist{}.png".format(ep_idx))
+                print("Ep #{} finished ==> Reward: {}".format(ep_idx, reward))
                 break

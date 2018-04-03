@@ -25,16 +25,32 @@ Install prerequisites with:
 
 To debug a **SPIARL** model:
 
-    python run.py --num_workers 12 --env simple --episode_length=1 --loss=l2 --conditional=True
+    python run.py --num_workers 8 --env simple --episode_length=1 \
+                  --location_size=8 --conditional=True \
+                  --loss=l2 --policy_batch_size=1
 
 To train a **SPIARL** model:
 
-    python run.py --num_workers 12 --env simple_mnist --episode_length=4 --loss=gan --conditional=True --location_size=32
+    python run.py --num_workers 12 --env simple_mnist --episode_length=2 \
+                  --color_channel=1 --location_size=32 --conditional=True \
+                  --mnist_nums=1 --loss=gan
+
+    python run.py --num_workers 24 --env simple_mnist --episode_length=3 \
+                  --color_channel=1 --location_size=32 --conditional=True \
+                  --mnist_nums=1,2,7 --loss=l2
+
+    python run.py --num_workers 24 --env simple_mnist --episode_length=3 \
+                  --color_channel=1 --location_size=32 --conditional=True \
+                  --mnist_nums=1,2,7 --loss=gan --num_gpu=2
+
+    python run.py --num_workers 24 --env mnist --episode_length=6 \
+                  --color_channel=1 --location_size=32 --conditional=True \
+                  --mnist_nums=0,1,2,3,7 --loss=gan --num_gpu=2
 
 
 ## Results
 
-![model](assets/mnist_in_progress1.png) ![model](assets/mnist_in_progress2.png)
+![model](assets/mnist_in_progress1.png) ![model](assets/mnist_in_progress2.png) ![model](assets/mnist_in_progress3.png)
 
 (in progress)
 
@@ -43,9 +59,10 @@ To train a **SPIARL** model:
 
 - [x] IMPALA A2C
 - [x] Simple environment (debugging)
-- [ ] Find a correct libmypaint setting
-- [ ] MNIST environment
-- [ ] ReplayThread (`--loss=gan`)
+- [x] Find a correct libmypaint setting
+- [x] MNIST environment
+- [x] ReplayThread (`--loss=gan`)
+- [ ] `--num_gpu=2` test
 - [ ] Population Based Training (to be honest, I don't have any plan for this)
 
 

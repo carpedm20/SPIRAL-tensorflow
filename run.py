@@ -34,8 +34,13 @@ def create_commands(session, args, shell='bash'):
 
     cmds_map = [new_cmd(session, "ps", base_cmd + ["--job_name", "ps"], args.load_path, shell)]
 
+    if args.loss == 'l2':
+        gpu_task_num = 1
+    elif args.loss == 'gan':
+        gpu_task_num = 2
+
     for i in range(args.num_workers):
-        if i < args.num_gpu: # gpu workers
+        if i < gpu_task_num: # gpu workers
             cmd = base_cmd[1:]
         else:
             cmd = base_cmd[:]

@@ -1,4 +1,3 @@
-# -*- coding: future_fstrings -*-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -127,8 +126,8 @@ class WorkerThread(threading.Thread):
 
     def _run(self):
         rollout_provider = env_runner(
-                self.env, self.policy, self.num_local_steps,
-                self.summary_writer)
+                self.env, self.policy,
+                self.num_local_steps, self.summary_writer)
         while True:
             out = next(rollout_provider)
 
@@ -156,11 +155,11 @@ class WorkerThread(threading.Thread):
             if self.replay_enqueue is not None:
                 fetches.append(self.replay_enqueue)
                 feed_dict.update({
-                        self.replay_placeholder: out.states,
+                        self.replay_placeholder: out.states[-1],
                 })
 
             out = self.sess.run(fetches, feed_dict)
-            logger.info(f"# traj: {out[0]}, # replay: {out[1]}")
+            logger.debug("# traj: {}, # replay: {}".format(*out))
 
 
 class ReplayThread(threading.Thread):
@@ -180,7 +179,6 @@ class ReplayThread(threading.Thread):
 
     def _run(self):
         while True:
-            out = next(rollout_provider)
             generated = self.sess.run(self.replay_dequeue)
             self.replay.push(generated)
 
@@ -198,8 +196,10 @@ def env_runner(env, policy, num_local_steps, summary_writer):
         last_action = env.initial_action
 
         for _ in range(num_local_steps):
+            c, h = last_features
+
             fetched = policy.act(
-                    last_state, last_action, *last_features, condition)
+                    last_state, last_action, c, h, condition)
             action, value_, features = fetched[0], fetched[1], fetched[2:]
 
             action = [np.argmax(action[name]) for name in env.acs]
@@ -225,10 +225,9 @@ def env_runner(env, policy, num_local_steps, summary_writer):
                 summary_writer.flush()
 
         last_state, condition = env.reset()
-        last_features = policy.get_initial_features(1, flat=True)
         logger.debug(
-                f"Episode finished. Sum of rewards: {rewards:.5f}." \
-                f"Length: {length}.")
+                "Episode finished. Sum of rewards: {:.5f}." \
+                "Length: {}.".format(rewards, length))
 
         length = 0
         rewards = 0

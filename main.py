@@ -1,4 +1,3 @@
-# -*- coding: future_fstrings -*-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -65,7 +64,7 @@ def main(_):
     trajectory_queue_size = \
             args.policy_batch_size * min(5, args.num_workers)
     replay_queue_size = \
-            args.discrim_batch_size * min(5, args.num_workers)
+            args.disc_batch_size * min(5, args.num_workers)
 
     #############################
     # Run
@@ -93,7 +92,7 @@ def main(_):
                 cluster_def, job_name="ps", task_index=args.task,
                 config=tf.ConfigProto(device_filters=["/job:ps"]))
 
-        with tf.device(f'/job:ps/task:{args.task}'):
+        with tf.device("/job:ps/task:{}".format(args.task)):
             queue_size = args.policy_batch_size * args.num_workers
 
             queue = tf.FIFOQueue(
@@ -105,7 +104,7 @@ def main(_):
             replay = tf.FIFOQueue(
                     replay_queue_size,
                     tf.float32,
-                    shapes=dict(queue_shapes)['states'],
+                    shapes=dict(queue_shapes)['states'][1:],
                     shared_name='replay')
        
         while True:

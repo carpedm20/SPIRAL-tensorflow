@@ -60,24 +60,26 @@ def prepare_dirs(args):
 
     # create directories
     for key, path in vars(args).items():
-        if key.endswith('_dir') and not os.path.exists(path):
+        if key.endswith('_dir') and not os.path.exists(str(path)):
             io.makedirs(path)
 
 def save_args(args):
-    param_path = args.load_path / PARAM_FNAME
+    load_path = Path(args.load_path)
+    param_path = load_path / PARAM_FNAME
 
     info = { k:str(v) if isinstance(v, Path) else v  for k, v in args.__dict__.items() }
-    with open(param_path, 'w') as f:
+    with open(str(param_path), 'w') as f:
         json.dump(info, f, indent=4, sort_keys=True)
 
-    cmd_path = args.load_path / "cmd.sh"
-    with open(cmd_path, 'w') as f:
+    cmd_path = load_path / "cmd.sh"
+    with open(str(cmd_path), 'w') as f:
         f.write(io.get_cmd())
 
     logger.info(f"Saved {PARAM_FNAME}: {param_path}")
 
 def update_args(args, key, new_value):
-    param_path = args.load_path / PARAM_FNAME
+    load_path = Path(args.load_path)
+    param_path = load_path / PARAM_FNAME
 
     if param_path.exists():
         with open(param_path) as f:
