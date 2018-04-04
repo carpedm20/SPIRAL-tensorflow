@@ -20,17 +20,19 @@ from .base import Environment
 
 
 class MNIST(Environment):
-    midpoint_pressure = None #0.7
     head = 0.25
     tail = 0.75
 
     action_sizes = {
-            'pressure': [4],
+            'pressure': [2],
             'jump': [2],
-            #'size': [2],
+            'size': [2],
             'control': None,
             'end': None,
     }
+
+    size = 0.2
+    pressure = 0.3
 
     def __init__(self, args):
         super(MNIST, self).__init__(args)
@@ -47,20 +49,17 @@ class MNIST(Environment):
         self.jumps = [0, 1]
 
         # size
-        self.sizes = np.arange(1, 0, -0.1)
+        self.sizes = np.arange(0.2, 2.0, 0.5)
         self.sizes = self.sizes * 1
         if 'size' in self.action_sizes:
             self.sizes = \
                     self.sizes[:self.action_sizes['size'][0]]
 
         # pressure
-        self.pressures = np.arange(1.0, 0, -0.2)
+        self.pressures = np.arange(0.8, 0, -0.3)
         if 'pressure' in self.action_sizes:
             self.pressures = \
                     self.pressures[:self.action_sizes['pressure'][0]]
-
-        self.entry_pressure = 0
-        self.exit_pressure = self.pressures[-1]
 
         self.colors = [
                 (0., 0., 0.), # black
@@ -84,6 +83,8 @@ class MNIST(Environment):
                 self.screen_size, self.location_size, 0)
 
     def reset(self):
+        self.entry_pressure = np.min(self.pressures)
+
         if self.conditional:
             self.random_target = self.get_random_target(num=1, squeeze=True)
         else:
@@ -104,7 +105,7 @@ class MNIST(Environment):
         jump = 0
         x, y = self.ends[0]
         color = self.colors[0]
-        pressure, size = self.pressures[0], self.sizes[0]
+        pressure, size = self.pressure, self.size
 
         for name in self.action_sizes:
             named_ac = ac[self.ac_idx[name]]
@@ -124,29 +125,35 @@ class MNIST(Environment):
         if self.colorize:
             self.b.brushinfo.set_color_rgb(self.colors[self._step])
         if 'size' in self.action_sizes:
-            self.b.set_base_value('radius_logarithmic', size)
+            self.b.brushinfo.set_base_value('radius_logarithmic', size)
 
         if self.s_x is None and self.s_y is None:
             self.s_x, self.s_y = 0, 0
-            pressure = 0
         if 'jump' in self.action_sizes and jump:
             pressure = 0
 
+        end_pressure = pressure
         if 'control' not in self.action_sizes:
+            print("pressure: ", pressure)
             self.b.stroke_to(
                     self.s.backend, x, y, pressure, 0, 0, dtime)
         elif pressure == 0:
+            color = self.b.brushinfo.get_color_rgb()
+
+            self.b.brushinfo.set_color_rgb((255, 255, 255))
             self.b.stroke_to(
                     self.s.backend, x, y, pressure, c_x, c_y, 0)
+            self.b.brushinfo.set_color_rgb(color)
         else:
-            self.curve(c_x, c_y, self.s_x, self.s_y, x, y, pressure)
+            end_pressure = self.curve(
+                    c_x, c_y, self.s_x, self.s_y, x, y, pressure)
 
         self.s_x, self.s_y = x, y
 
         self.s.end_atomic()
         self.s.begin_atomic()
 
-        self.entry_pressure = self.pressures[-1]
+        self.entry_pressure = end_pressure
 
     # sx, sy = starting point
     # ex, ey = end point
@@ -193,8 +200,10 @@ class MNIST(Environment):
             pressure = abs((i-tail)/tail_length * prange2 + midpoint_p)
             self._stroke_to(px, py, pressure)
 
+        return pressure
+
     def _stroke_to(self, x, y, pressure):
-        duration = 0.001
+        duration = 0.1
         self.b.stroke_to(
                 self.s.backend,
                 x, y,
@@ -248,10 +257,10 @@ class MNIST(Environment):
             desc.append("{}: {} ({})".format(name, actual_ac, named_ac))
         return "\n".join(desc)
 
-    def _line_settings(self, midpoint_pressure):
+    def _line_settings(self, pressure):
         p1 = self.entry_pressure
-        p2 = midpoint_pressure
-        p3 = self.exit_pressure
+        p2 = (self.entry_pressure + pressure) / 2
+        p3 = pressure
         if self.head == 0.0001:
             p1 = p2
         prange1 = p2 - p1
@@ -301,7 +310,7 @@ class MNIST(Environment):
 class SimpleMNIST(MNIST):
 
     action_sizes = {
-            #'pressure': [4],
+            #'pressure': [2],
             #'jump': [2],
             #'color': [4],
             #'size': [2],

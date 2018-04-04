@@ -32,21 +32,24 @@ def create_commands(session, args, shell='bash'):
             '--num_gpu', ut.misc.count_gpu(),
     ] + actual_args
 
-    cmds_map = [new_cmd(session, "ps", base_cmd + ["--job_name", "ps"], args.load_path, shell)]
+    cmds_map = [
+            ("dummy", "tmux send-keys -t {}:0 Enter".format('spiral')),
+            new_cmd(session, "ps", base_cmd + ["--job_name", "ps"], args.load_path, shell),
+    ]
 
     if args.loss == 'l2':
         gpu_task_num = 1
     elif args.loss == 'gan':
         gpu_task_num = 2
 
-    for i in range(args.num_workers):
-        if i < gpu_task_num: # gpu workers
-            cmd = base_cmd[1:]
+    for idx in range(args.num_workers):
+        if idx < gpu_task_num and args.num_gpu > 0: # gpu workers
+            cmd = [base_cmd[0] + str(min(args.num_gpu, max(0, args.num_gpu - idx - 1)))] + base_cmd[1:]
         else:
             cmd = base_cmd[:]
 
-        cmd += ["--job_name", "worker", "--task", str(i)]
-        cmds_map += [new_cmd(session, "w-%d" % i, cmd, args.load_path, shell)]
+        cmd += ["--job_name", "worker", "--task", str(idx)]
+        cmds_map += [new_cmd(session, "w-%d" % idx, cmd, args.load_path, shell)]
 
     tmp_tb_dir = "/".join(sys.executable.split('/')[:-1])
     tmp_tb_path = os.path.join(tmp_tb_dir, "tensorboard")

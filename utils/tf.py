@@ -14,6 +14,11 @@ class FastSaver(tf.train.Saver):
                                     meta_graph_suffix, False)
 
 
+def get_all_variables(scope_name):
+     return tf.get_collection(
+             tf.GraphKeys.GLOBAL_VARIABLES,
+             scope=scope_name)
+
 def get_sync_op(from_list, to_list):
     assert len(from_list) == len(to_list), \
             "length of to variables should be same ({len(from_list)} != {len(to_list)})"

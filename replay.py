@@ -15,7 +15,7 @@ class ReplayBuffer(object):
 
         self.idx = 0
         replay_shape = [self.replay_size] + observation_shape
-        self.data = np.zeros(replay_shape)
+        self.data = np.zeros(replay_shape, dtype=np.uint8)
 
     def push(self, batches):
         batch_size = len(batches)
@@ -33,4 +33,4 @@ class ReplayBuffer(object):
         while self.idx < n:
             pass
         random_idx = self.rng.choice(self.idx, n)
-        return self.data[random_idx]
+        return self.data[random_idx].astype(np.float32)

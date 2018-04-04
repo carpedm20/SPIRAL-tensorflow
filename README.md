@@ -43,14 +43,14 @@ To train a **SPIARL** model:
                   --color_channel=1 --location_size=32 --conditional=True \
                   --mnist_nums=1,2,7 --loss=gan --num_gpu=2
 
-    python run.py --num_workers 24 --env mnist --episode_length=6 \
+    python run.py --num_workers 24 --env simple_mnist --episode_length=5 \
                   --color_channel=1 --location_size=32 --conditional=True \
-                  --mnist_nums=0,1,2,3,7 --loss=gan --num_gpu=2
+                  --mnist_nums=0,1,2,7 --loss=gan --num_gpu=2
 
 
 ## Results
 
-![model](assets/mnist_in_progress1.png) ![model](assets/mnist_in_progress2.png) ![model](assets/mnist_in_progress3.png)
+![model](assets/mnist_in_progress1.png) ![model](assets/mnist_in_progress2.png)
 
 (in progress)
 
@@ -62,7 +62,7 @@ To train a **SPIARL** model:
 - [x] Find a correct libmypaint setting
 - [x] MNIST environment
 - [x] ReplayThread (`--loss=gan`)
-- [ ] `--num_gpu=2` test
+- [x] `--num_gpu=2` test
 - [ ] Population Based Training (to be honest, I don't have any plan for this)
 
 

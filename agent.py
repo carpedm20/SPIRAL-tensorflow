@@ -27,33 +27,6 @@ class Agent(object):
         self.action_sizes = env.action_sizes
         self.input_shape = list(self.env.observation_shape)
 
-        ###########################
-        # Master policy (task!=1)
-        ###########################
-
-        device = 'gpu' if self.task < args.num_gpu else 'cpu'
-        master_device = "/job:worker/task:{}/{}:0".format(self.args.task, device)
-        master_device_replica = tf.train. \
-                replica_device_setter(1, worker_device=master_device)
-
-        with tf.device(master_device_replica):
-            with tf.variable_scope("global"):
-                self.policy_step = tf.get_variable(
-                        "policy_step", [], tf.int32,
-                        initializer=tf.constant_initializer(0, dtype=tf.int32),
-                        trainable=False)
-
-            # master should initialize discriminator
-            if args.task < 2:
-                self.global_disc = models.Discriminator(
-                        self.args, self.input_shape, "global")
-
-        if args.task != 1 or args.loss == 'l2':
-            logger.debug(master_device)
-
-            with tf.device(master_device_replica):
-                self.prepare_master_network()
-
         ##################################
         # Queue pipelines (ps/task=0~)
         ##################################
@@ -81,6 +54,44 @@ class Agent(object):
                 self.replay_queue_size_op = None
 
         ###########################
+        # Master policy (task!=1)
+        ###########################
+
+        device = 'gpu' if self.task == 0 else 'cpu'
+        master_gpu = "/job:worker/task:{}/{}:0".format(self.args.task, device)
+        master_gpu_replica = tf.train. \
+                replica_device_setter(1, worker_device=master_gpu)
+
+        with tf.device(master_gpu_replica):
+            with tf.variable_scope("global"):
+                self.policy_step = tf.get_variable(
+                        "policy_step", [], tf.int32,
+                        initializer=tf.constant_initializer(0, dtype=tf.int32),
+                        trainable=False)
+
+                self.disc_step = tf.get_variable(
+                        "disc_step", [], tf.int32,
+                        initializer=tf.constant_initializer(0, dtype=tf.int32),
+                        trainable=False)
+
+            #master_cpu = "/job:worker/task:{}/cpu:0".format(self.args.task, device)
+            #master_cpu_replica = tf.train. \
+            #        replica_device_setter(1, worker_device=master_cpu)
+
+            #with tf.device(master_cpu_replica):
+            # master should initialize discriminator
+            if args.task < 2 and args.loss == 'gan':
+                self.global_disc = models.Discriminator(
+                        self.args, self.disc_step, self.input_shape,
+                        self.env.norm, "global")
+
+        if args.task != 1 or args.loss == 'l2':
+            logger.debug(master_gpu)
+
+            with tf.device(master_gpu_replica):
+                self.prepare_master_network()
+
+        ###########################
         # Master policy network
         ###########################
         if self.args.task == 0:
@@ -106,7 +117,8 @@ class Agent(object):
             else:
                 gpu_num = 0
 
-            worker_device = "/job:worker/task:{}/gpu:{}".format(self.task, gpu_num)
+            device = 'gpu' if self.task < args.num_gpu else 'cpu'
+            worker_device = "/job:worker/task:{}/{}:0".format(self.task, device)
             logger.debug(worker_device)
 
             with tf.device(worker_device):
@@ -202,6 +214,10 @@ class Agent(object):
             summaries.append(
                     tf.summary.image("target", self.env.denorm(pi.c[:,-1])))
 
+            l2_loss = tf.reduce_sum((pi.x[:,-1] - pi.c[:,-1])**2, [1,2,3])
+            summaries.append(
+                    tf.summary.scalar("model/l2_loss", tf.reduce_mean(l2_loss)))
+
         self.summary_op = tf.summary.merge(summaries)
         grads, _ = tf.clip_by_global_norm(grads, self.args.grad_clip)
 
@@ -209,7 +225,7 @@ class Agent(object):
 
         # each worker has a different set of adam optimizer parameters
         opt = tf.train.AdamOptimizer(
-                self.args.policy_lr, name="gan_optim")
+                self.args.policy_lr, name="policy_optim")
 
         self.train_op = opt.apply_gradients(grads_and_vars, self.policy_step)
         self.summary_writer = None
@@ -261,8 +277,8 @@ class Agent(object):
 
         # copy weights from the parameter server to the local model
         self.policy_sync = ut.tf.get_sync_op(
-                self.global_network.var_list,
-                self.local_network.var_list)
+                from_list=self.global_network.var_list,
+                to_list=self.local_network.var_list)
 
     def prepare_gan(self):
         self.replay = replay.ReplayBuffer(self.args, self.input_shape)
@@ -273,11 +289,16 @@ class Agent(object):
                 self.replay, self.replay_dequeue)
 
         self.local_disc = models.Discriminator(
-                self.args, self.input_shape, "local")
+                self.args, self.disc_step, self.input_shape,
+                self.env.norm, "local")
 
         self.disc_sync = ut.tf.get_sync_op(
-                self.global_disc.var_list,
-                self.local_disc.var_list)
+                from_list=self.local_disc.var_list,
+                to_list=self.global_disc.var_list)
+
+        self.disc_initializer = ut.tf.get_sync_op(
+                from_list=self.global_disc.var_list,
+                to_list=self.local_disc.var_list)
 
     def start_worker_thread(self, sess, summary_writer):
         self.worker_thread.start_thread(sess, summary_writer)
@@ -301,10 +322,12 @@ class Agent(object):
     ###########################
 
     def train_policy(self, sess):
-        assert self.task < self.args.num_gpu, \
-                "Only chief should use GPU and update"
-
         rollout = sess.run(self.trajectory_dequeue)
+
+        if self.args.loss == 'gan':
+            probs = self.global_disc.predict(rollout['states'][:,-1])
+            rollout['rewards'][:,-1] = probs[:,0]
+
         batch = rl_utils.multiple_process_rollout(
                 rollout, gamma=0.99, lambda_=1.0)
 
@@ -313,9 +336,11 @@ class Agent(object):
         #################
 
         feed_dict = {
+                # [B, ep_len]
                 self.r: batch.r,
                 self.adv: batch.adv,
                 self.global_network.x: batch.si,
+                # [B, ep_len, action_size]
                 self.global_network.ac: batch.a,
                 self.global_network.state_in[0]: batch.features[:,0],
                 self.global_network.state_in[1]: batch.features[:,1],
@@ -347,8 +372,6 @@ class Agent(object):
             var_to_test = self.global_network.var_list
             before = sess.run(var_to_test)
 
-        #if batch.r.sum() == 1:
-        #    import ipdb; ipdb.set_trace() 
         out = sess.run(fetches, feed_dict=feed_dict)
 
         if self.args.debug:
@@ -370,19 +393,25 @@ class Agent(object):
     ###########################
 
     def train_gan(self, sess):
-        fakes = self.replay.sample(self.args.fake_batch_size)
+        fakes = self.replay.sample(
+                self.args.fake_batch_size)
 
         feed_dict = {
-                self.disc.fake: fakes,
-                self.disc.real: self.env.get_random_target(self.args.real_batch_size),
+                self.local_disc.fake: fakes,
+                self.local_disc.real: self.env.get_random_target(self.args.real_batch_size),
         }
         fetches = [
-                self.disc.train_op, self.disc.summary_op, self.disc.step,
+                self.local_disc.train_op,
+                self.local_disc.step,
+                self.local_disc.summary_op,
+                self.replay_queue_size_op,
         ]
         out = sess.run(fetches, feed_dict=feed_dict)
 
-        self.summary_writer.add_summary(tf.Summary.FromString(out[1]), out[2])
+        self.summary_writer.add_summary(tf.Summary.FromString(out[2]), out[1])
         self.summary_writer.flush()
+
+        logger.info("# replay: {}".format(out[3]))
 
 
 def weights_before_after(before, after, var_to_test):

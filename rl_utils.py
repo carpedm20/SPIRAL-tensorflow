@@ -149,8 +149,7 @@ class WorkerThread(threading.Thread):
                     feed_dict[k] = np.array(v)
 
             fetches = [
-                    self.traj_size, self.replay_size,
-                    self.traj_enqueues
+                    self.traj_enqueues,
             ]
             if self.replay_enqueue is not None:
                 fetches.append(self.replay_enqueue)
@@ -159,7 +158,6 @@ class WorkerThread(threading.Thread):
                 })
 
             out = self.sess.run(fetches, feed_dict)
-            logger.debug("# traj: {}, # replay: {}".format(*out))
 
 
 class ReplayThread(threading.Thread):

@@ -18,10 +18,8 @@ def main(_):
     from config import get_args
     args = get_args()
 
-    assert args.num_gpu > 0, \
-            "You need at least one GPU to train a SPIRAL agent"
+    ut.train.set_global_seed(args.seed + args.task)
 
-    ut.train.set_global_seed(args.seed)
     spec = ut.tf.cluster_spec(
             args.num_workers, 1, args.start_port)
     cluster = tf.train.ClusterSpec(spec)
@@ -62,9 +60,9 @@ def main(_):
     ])
 
     trajectory_queue_size = \
-            args.policy_batch_size * min(5, args.num_workers)
+            args.policy_batch_size * max(5, args.num_workers)
     replay_queue_size = \
-            args.disc_batch_size * min(5, args.num_workers)
+            args.disc_batch_size * max(5, args.num_workers)
 
     #############################
     # Run

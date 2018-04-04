@@ -196,26 +196,28 @@ class Policy(object):
         return out
 
     def decoder(self, z, action_sizes, data_format, lstm_size, scale=1):
+        # [batch, max_time, lstm_size]
         z_shape = tf.shape(z)
         batch_size, max_time = z_shape[0], z_shape[1]
 
-        z = tf.reshape(z, [-1, self.lstm_size])
-
         one_hot_samples, samples, logits = {}, {}, {}
 
-        for idx, (name, action_size) in enumerate(action_sizes.items()):
+        for action_idx, (name, action_size) in enumerate(action_sizes.items()):
+            # [batch*max_time, lstm_size]
+            z_flat = tf.reshape(z, [-1, self.lstm_size])
+
             with tf.variable_scope("decoder_{}".format(name)):
                 if len(action_size) == 1:
                     N = action_size[0]
                     logit = tl.dense(
-                            z, N,
+                            z_flat, N,
                             activation=None,
-                            name="action{}".format(idx),
+                            name="action{}".format(name),
                             kernel_initializer= \
                                     normalized_columns_initializer(0.01))
                 else:
                     # format: NHWC
-                    reshape = tf.reshape(z, [-1, 4, 4, int(lstm_size / 16)])
+                    reshape = tf.reshape(z_flat, [-1, 4, 4, int(lstm_size / 16)])
 
                     # format: NHWC
                     res = deconv = tl.conv2d_transpose(
@@ -231,21 +233,21 @@ class Policy(object):
                         res = tf.transpose(res, [0, 3, 1, 2])
 
                     # format: each
-                    for idx in range(int(8*scale)):
+                    for res_idx in range(int(8*scale)):
                         res = res_block(
                                 res, int(32), 3, data_format,
-                                name="decoder_res_{}".format(idx))
+                                name="decoder_res_{}".format(res_idx))
 
                     # format: NHWC
                     deconv = res
                     transposed = False
-                    for idx in range(int(2)):
+                    for deconv_idx in range(int(2)):
                         deconv_width = int(deconv.get_shape()[2])
                         if deconv_width == action_size[0]:
                             break
 
                         # format: NCHW -> NHWC 
-                        if idx == 0 and data_format == 'channels_first' \
+                        if deconv_idx == 0 and data_format == 'channels_first' \
                                 and args.dynamic_channel:
                             transposed = True
                             deconv = tf.transpose(deconv, [0, 2, 3, 1])
@@ -257,7 +259,7 @@ class Policy(object):
                                 padding='same',
                                 activation=tf.nn.relu,
                                 data_format='channels_last',
-                                name="deconv_{}".format(idx))
+                                name="deconv_{}".format(deconv_idx))
 
                     # format: each
                     if data_format == 'channels_first' and transposed \
@@ -280,15 +282,22 @@ class Policy(object):
 
                 action_one_hot, action = \
                         categorical_sample(logit, np.prod(action_size))
-                one_hot_samples[name] = tf.reshape(
-                        action_one_hot, [batch_size, max_time, -1])
 
-                if idx < len(action_sizes) - 1:
+                # [batch, max_time, action_size[name]]
+                one_hot_samples[name] = tf.reshape(
+                        action_one_hot, [batch_size, max_time, -1],
+                        name="one_hot_samples_{}".format(name))
+                # [batch, max_time, 1]
+                samples[name] = tf.reshape(
+                        action, [batch_size, max_time],
+                        name="samples_{}".format(name))
+
+                if action_idx < len(action_sizes) - 1:
                     # this will be feeded to make gradient flows
-                    samples[name] = tf.expand_dims(action, 1)
                     out = mlp(
-                            samples[name], int(16),
+                            tf.expand_dims(samples[name], -1), int(16),
                             name='sample_mlp')
+                    # [batch, max_time, lstm_size]
                     z = tl.dense(
                             tf.concat([z, out], -1), int(lstm_size),
                             activation=tf.nn.relu,

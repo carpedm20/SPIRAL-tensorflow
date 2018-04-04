@@ -56,6 +56,13 @@ def train(args, server, cluster, env, queue_shapes,
             "{}_{}".format(args.load_path, args.task))
     agent.summary_writer = summary_writer
 
+    uninitialized_variables = tf.report_uninitialized_variables(variables_to_save)
+
+    if args.task == 1 and args.loss == 'gan':
+        local_init_op = tf.variables_initializer(agent.local_disc.var_list)
+    else:
+        local_init_op = None
+
     sv = tf.train.Supervisor(
             is_chief=args.task == 0,
             logdir=str(args.load_path),
@@ -63,10 +70,11 @@ def train(args, server, cluster, env, queue_shapes,
             summary_op=None,
             init_op=init_op,
             init_fn=init_fn,
+            local_init_op=local_init_op,
             summary_writer=summary_writer,
             # very useful when sv.managed_session hang
-            ready_op=tf.constant([], dtype=tf.string),
-            #ready_op=tf.report_uninitialized_variables(variables_to_save),
+            #ready_op=tf.constant([], dtype=tf.string),
+            ready_op=uninitialized_variables,
             global_step=agent.policy_step,
             save_model_secs=30,
             save_summaries_secs=30)
@@ -80,12 +88,14 @@ def train(args, server, cluster, env, queue_shapes,
 
     with sv.managed_session(server.target, config=config) as sess, \
             sess.as_default():
+
         ###############################
         # Run thread
         ###############################
 
         if args.task == 1 and args.loss == 'gan':
-            sess.run(agent.disc_sync)
+            # master_disc ->local_disc 
+            sess.run(agent.disc_initializer)
             agent.start_replay_thread(sess, summary_writer)
         elif args.task >= 1:
             sess.run(agent.policy_sync)
@@ -96,12 +106,15 @@ def train(args, server, cluster, env, queue_shapes,
 
         while not sv.should_stop() and ( \
                 not num_policy_steps or policy_step < num_policy_steps):
+
             if args.task == 0:
                 agent.train_policy(sess)
             elif args.task == 1 and args.loss == 'gan':
+                # local_disc -> master_disc
+                sess.run(agent.disc_sync)
                 agent.train_gan(sess)
             else:
-                sync()
+                sess.run(agent.policy_sync)
             policy_step = sess.run(agent.policy_step)
 
     # Ask for all the services to stop.
