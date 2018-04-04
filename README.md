@@ -50,7 +50,9 @@ To train a **SPIARL** model:
 
 ## Results
 
-![model](assets/mnist_in_progress1.png) ![model](assets/mnist_in_progress2.png)
+![model](assets/mnist_in_progress1.png) ![model](assets/mnist_in_progress2.png) ![model](assets/mnist_in_progress3.png)
+
+![model](assets/tensorboard.png)
 
 (in progress)
 
