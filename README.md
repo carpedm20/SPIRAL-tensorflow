@@ -31,6 +31,16 @@ To debug a **SPIARL** model:
 
 To train a **SPIARL** model:
 
+    python run.py --num_workers 16 --env simple_mnist --episode_length=3 \
+                  --color_channel=1 --location_size=32 --loss=gan --num_gpu=1 \
+                  --disc_dim=8 --conditional=False \
+                  --mnist_nums=1,7 --jump=False --curve=False
+
+    python run.py --num_workers 24 --env simple_mnist --episode_length=6 \
+                  --color_channel=1 --location_size=32 --loss=gan --num_gpu=2 \
+                  --disc_dim=64 --conditional=False \
+                  --mnist_nums=0,1,2,3,4,5,6,7,8,9 --jump=True
+
     python run.py --num_workers 12 --env simple_mnist --episode_length=2 \
                   --color_channel=1 --location_size=32 --conditional=True \
                   --mnist_nums=1 --loss=gan
@@ -65,6 +75,8 @@ To train a **SPIARL** model:
 - [x] MNIST environment
 - [x] ReplayThread (`--loss=gan`)
 - [x] `--num_gpu=2` test
+- [ ] `--conditional=True` (need more details)
+- [ ] Replay memory needs more detailed information
 - [ ] Population Based Training (to be honest, I don't have any plan for this)
 
 

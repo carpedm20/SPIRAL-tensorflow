@@ -6,6 +6,12 @@ class Environment(object):
     def __init__(self, args):
         self.args = args
 
+        if not args.jump and 'jump' in self.action_sizes:
+            del self.action_sizes['jump']
+
+        if not args.curve and 'control' in self.action_sizes:
+            del self.action_sizes['control']
+
         # terminal
         self.episode_length = args.episode_length
 
@@ -46,4 +52,4 @@ class Environment(object):
         return (np.array(img) - 127.5) / 127.5
 
     def denorm(self, img):
-        return img * 127.5 +  127.5
+        return img * 127.5 + 127.5

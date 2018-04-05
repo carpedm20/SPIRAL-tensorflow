@@ -72,9 +72,13 @@ def main(_):
         ut.train.save_args(args)
 
     if args.job_name == "worker":
+        gpu_options = tf.GPUOptions(allow_growth=True)
+
         tf_config = tf.ConfigProto(
+                allow_soft_placement=True,
                 intra_op_parallelism_threads=1,
-                inter_op_parallelism_threads=2)
+                inter_op_parallelism_threads=2,
+                gpu_options=gpu_options)
 
         server = tf.train.Server(
                 cluster_def,

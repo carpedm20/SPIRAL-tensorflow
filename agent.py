@@ -10,8 +10,9 @@ import replay
 import rl_utils
 import utils as ut
 
-
 logger = ut.logging.get_logger()
+image_reshaper = tf.contrib.gan.eval.eval_utils.image_reshaper
+
 
 class Agent(object):
 
@@ -26,6 +27,10 @@ class Agent(object):
 
         self.action_sizes = env.action_sizes
         self.input_shape = list(self.env.observation_shape)
+
+        # used for summary
+        self._disc_step = 0
+        self._policy_step = 0
 
         ##################################
         # Queue pipelines (ps/task=0~)
@@ -112,12 +117,7 @@ class Agent(object):
         # Discriminator (task=1)
         ###########################
         elif self.args.task == 1 and self.args.loss == 'gan':
-            if self.args.num_gpu > 1:
-                gpu_num = 1
-            else:
-                gpu_num = 0
-
-            device = 'gpu' if self.task < args.num_gpu else 'cpu'
+            device = 'gpu' if args.num_gpu > 0 else 'cpu'
             worker_device = "/job:worker/task:{}/{}:0".format(self.task, device)
             logger.debug(worker_device)
 
@@ -200,8 +200,12 @@ class Agent(object):
         ##################
 
         # summarize only the last state
+        last_state = self.env.denorm(pi.x[:,-1])
+        last_state.set_shape(
+                [self.args.policy_batch_size] + ut.tf.int_shape(last_state)[1:])
+
         summaries = [
-                tf.summary.image("last_state", self.env.denorm(pi.x[:,-1])),
+                tf.summary.image("last_state", image_reshaper(last_state)),
                 tf.summary.scalar("env/r", tf.reduce_mean(self.r[:,-1])),
                 tf.summary.scalar("model/policy_loss", self.pi_loss / bsz),
                 tf.summary.scalar("model/value_loss", self.vf_loss / bsz),
@@ -211,8 +215,12 @@ class Agent(object):
         ]
 
         if pi.c is not None:
+            target = self.env.denorm(pi.c[:,-1])
+            target.set_shape(
+                [self.args.policy_batch_size] + ut.tf.int_shape(target)[1:])
+
             summaries.append(
-                    tf.summary.image("target", self.env.denorm(pi.c[:,-1])))
+                    tf.summary.image("target", image_reshaper(target)))
 
             l2_loss = tf.reduce_sum((pi.x[:,-1] - pi.c[:,-1])**2, [1,2,3])
             summaries.append(
@@ -326,7 +334,7 @@ class Agent(object):
 
         if self.args.loss == 'gan':
             probs = self.global_disc.predict(rollout['states'][:,-1])
-            rollout['rewards'][:,-1] = probs[:,0]
+            rollout['rewards'][:,-1] = probs
 
         batch = rl_utils.multiple_process_rollout(
                 rollout, gamma=0.99, lambda_=1.0)
@@ -363,30 +371,30 @@ class Agent(object):
         # Fetch ops
         #################
 
-        fetches = [
-                self.train_op, self.summary_op, self.policy_step,
-                self.trajectory_queue_size_op,
-        ]
-
-        if self.args.debug:
-            var_to_test = self.global_network.var_list
-            before = sess.run(var_to_test)
+        fetches = {
+                'train': self.train_op,
+                'step': self.policy_step,
+        }
+        if self._policy_step % self.args.policy_log_step == 0:
+            fetches.update({
+                    'summary': self.summary_op,
+                    'policy_size': self.trajectory_queue_size_op,
+            })
 
         out = sess.run(fetches, feed_dict=feed_dict)
 
-        if self.args.debug:
-            after = sess.run(var_to_test)
-            weights_before_after(before, after, var_to_test)
+        if self._policy_step % self.args.policy_log_step == 0:
+            self.summary_writer.add_summary(
+                    tf.Summary.FromString(out['summary']), out['step'])
+            self.summary_writer.flush()
 
-        self.summary_writer.add_summary(
-                tf.Summary.FromString(out[1]), out[2])
-        self.summary_writer.flush()
+            debug_text = "# traj: {}".format(out['policy_size'])
+            if self.task == 0:
+                logger.info(debug_text)
+            else:
+                logger.debug(debug_text)
 
-        debug_text = "# traj: {}".format(out[3])
-        if self.task == 0:
-            logger.info(debug_text)
-        else:
-            logger.debug(debug_text)
+        self._policy_step = out['step']
 
     ###########################
     # Discriminator (task=1)
@@ -394,24 +402,33 @@ class Agent(object):
 
     def train_gan(self, sess):
         fakes = self.replay.sample(
-                self.args.fake_batch_size)
+                self.args.disc_batch_size)
 
         feed_dict = {
                 self.local_disc.fake: fakes,
-                self.local_disc.real: self.env.get_random_target(self.args.real_batch_size),
+                self.local_disc.real: self.env.get_random_target(self.args.disc_batch_size),
         }
-        fetches = [
-                self.local_disc.train_op,
-                self.local_disc.step,
-                self.local_disc.summary_op,
-                self.replay_queue_size_op,
-        ]
+
+        fetches = {
+                'train': self.local_disc.train_op,
+                'step': self.local_disc.step,
+        }
+        if self._disc_step % self.args.disc_log_step == 0:
+            fetches.update({
+                    'summary': self.local_disc.summary_op,
+                    'replay_size': self.replay_queue_size_op,
+            })
+
         out = sess.run(fetches, feed_dict=feed_dict)
 
-        self.summary_writer.add_summary(tf.Summary.FromString(out[2]), out[1])
-        self.summary_writer.flush()
+        if self._disc_step % self.args.disc_log_step == 0:
+            self.summary_writer.add_summary(
+                    tf.Summary.FromString(out['summary']), out['step'])
+            self.summary_writer.flush()
 
-        logger.info("# replay: {}".format(out[3]))
+            logger.info("# replay: {}".format(out['replay_size']))
+
+        self._disc_step = out['step']
 
 
 def weights_before_after(before, after, var_to_test):

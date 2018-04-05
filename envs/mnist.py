@@ -104,6 +104,7 @@ class MNIST(Environment):
 
         jump = 0
         x, y = self.ends[0]
+        c_x, c_y = self.controls[0]
         color = self.colors[0]
         pressure, size = self.pressure, self.size
 
@@ -130,11 +131,16 @@ class MNIST(Environment):
         if self.s_x is None and self.s_y is None:
             self.s_x, self.s_y = 0, 0
         if 'jump' in self.action_sizes and jump:
+            self._draw(self.s_x, self.s_y, 0, 0, 0, size, color, dtime)
             pressure = 0
 
+        self._draw(x, y, c_x, c_y, pressure, size, color, dtime)
+
+    def _draw(self, x, y, c_x, c_y,
+              pressure, size, color, dtime):
         end_pressure = pressure
+
         if 'control' not in self.action_sizes:
-            print("pressure: ", pressure)
             self.b.stroke_to(
                     self.s.backend, x, y, pressure, 0, 0, dtime)
         elif pressure == 0:
@@ -148,12 +154,12 @@ class MNIST(Environment):
             end_pressure = self.curve(
                     c_x, c_y, self.s_x, self.s_y, x, y, pressure)
 
+        self.entry_pressure = end_pressure
+
         self.s_x, self.s_y = x, y
 
         self.s.end_atomic()
         self.s.begin_atomic()
-
-        self.entry_pressure = end_pressure
 
     # sx, sy = starting point
     # ex, ey = end point
@@ -228,13 +234,13 @@ class MNIST(Environment):
                 reward = - utils.l2(self.state, self.random_target) \
                         / np.prod(self.observation_shape)
             else:
-                reward = None
+                reward = 0
         else:
             reward = 0
         # state, reward, terminal, info
         return self.state, reward, terminal, {}
 
-    def save_image(self, path):
+    def save_image(self, path="test.png"):
         Image.fromarray(self.image.astype(np.uint8).squeeze()).save(path)
         #self.s.save_as_png(path, alpha=False)
 
@@ -311,10 +317,10 @@ class SimpleMNIST(MNIST):
 
     action_sizes = {
             #'pressure': [2],
-            #'jump': [2],
+            'jump': [2],
             #'color': [4],
             #'size': [2],
-            #'control': None,
+            'control': None,
             'end': None,
     }
 
@@ -342,17 +348,15 @@ if __name__ == '__main__':
         step = 0
         env.reset()
 
-        env.save_image("mnist{}_{}.png".format(ep_idx, step))
-
         while True:
             action = env.random_action()
             print("[Step {}] ac: {}".format(
                     step, env.get_action_desc(action)))
             state, reward, terminal, info = env.step(action)
-            step += 1
-
             env.save_image("mnist{}_{}.png".format(ep_idx, step))
             
             if terminal:
                 print("Ep #{} finished ==> Reward: {}".format(ep_idx, reward))
                 break
+
+            step += 1

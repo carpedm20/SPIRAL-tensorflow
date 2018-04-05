@@ -4,6 +4,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+from tensorflow.python.client import device_lib
 
 
 # Disables write_meta_graph argument, which freezes entire process and is mostly useless.
@@ -47,3 +48,7 @@ def cluster_spec(num_workers, num_ps, port=12222):
         port += 1
     cluster['worker'] = all_workers
     return cluster
+
+def int_shape(tensor):
+    shape = tensor.get_shape().as_list()
+    return [num if num is not None else -1 for num in shape]
