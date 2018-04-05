@@ -60,11 +60,19 @@ To train a **SPIARL** model:
 
 ## Results
 
-![model](assets/mnist_in_progress1.png) ![model](assets/mnist_in_progress2.png) ![model](assets/mnist_in_progress3.png)
+(in progress)
+
+Random generated samples at early stage:
+
+![model](assets/early_converged.png)
+
+Incorrectly converged samples at early stage:
+
+![model](assets/early_random.png)
+
+Tensorboard:
 
 ![model](assets/tensorboard.png)
-
-(in progress)
 
 
 ## To-do
