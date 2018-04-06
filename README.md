@@ -78,12 +78,13 @@ Tensorboard:
 ## To-do
 
 - [x] IMPALA A2C
+- [ ] IMPALA V-trace
 - [x] Simple environment (debugging)
 - [x] Find a correct libmypaint setting
 - [x] MNIST environment
 - [x] ReplayThread (`--loss=gan`)
 - [x] `--num_gpu=2` test
-- [ ] `--conditional=True` (need more details)
+- [x] `--conditional=True` (need more details)
 - [ ] Replay memory needs more detailed information
 - [ ] Population Based Training (to be honest, I don't have any plan for this)
 

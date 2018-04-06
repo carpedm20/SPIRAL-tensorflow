@@ -12,7 +12,7 @@ import utils as ut
 
 logger = ut.logging.get_logger()
 
-Batch = namedtuple("Batch", ["si", "a", "adv", "r", "features", "c"])
+Batch = namedtuple("Batch", ["si", "a", "adv", "r", "features", "c", "z"])
 
 
 def discount(x, gamma):
@@ -43,8 +43,10 @@ def multiple_process_rollout(rollout, gamma, lambda_=1.0):
 
     if 'conditions' in rollout:
         batch_c = np.asarray(rollout['conditions'])
+        batch_z = None
     else:
         batch_c = None
+        batch_z = np.asarray(rollout['z'])
 
     #batch_a = flatten_first_two(batch_a)
     #batch_r = flatten_first_two(batch_r)
@@ -52,7 +54,7 @@ def multiple_process_rollout(rollout, gamma, lambda_=1.0):
     #batch_adv = flatten_first_two(batch_adv)
     #features = features[:,:,0,:]
 
-    return Batch(batch_si, batch_a, batch_adv, batch_r, features, batch_c)
+    return Batch(batch_si, batch_a, batch_adv, batch_r, features, batch_c, batch_z)
 
 
 class PartialRollout(object):
@@ -68,8 +70,9 @@ class PartialRollout(object):
         self.r = 0.0
         self.features = []
         self.conditions = None
+        self.z = None
 
-    def add(self, state, action, reward, value, features, conditions=None):
+    def add(self, state, action, reward, value, features, conditions=None, z=None):
         self.states += [state]
         self.actions += [action]
         self.rewards += [reward]
@@ -81,16 +84,10 @@ class PartialRollout(object):
                 self.conditions = []
             self.conditions += [conditions]
 
-    def extend(self, other):
-        self.states.extend(other.states)
-        self.actions.extend(other.actions)
-        self.rewards.extend(other.rewards)
-        self.values.extend(other.values)
-        self.r = other.r
-        self.features.extend(other.features)
-
-        if self.conditions is not None:
-            self.conditions.extend(other.conditions)
+        if z is not None:
+            if self.z is None:
+                self.z = []
+            self.z += [z]
 
 
 class WorkerThread(threading.Thread):
@@ -143,6 +140,10 @@ class WorkerThread(threading.Thread):
                 feed_dict.update({
                         self.traj_placeholders['conditions']: out.conditions,
                 })
+            else:
+                feed_dict.update({
+                        self.traj_placeholders['z']: out.z,
+                })
 
             for k, v in feed_dict.items():
                 if isinstance(v, list):
@@ -182,7 +183,7 @@ class ReplayThread(threading.Thread):
 
 
 def env_runner(env, policy, num_local_steps, summary_writer):
-    last_state, condition = env.reset()
+    last_state, condition, z = env.reset()
     last_features = policy.get_initial_features(1, flat=True)
 
     length = 0
@@ -197,15 +198,15 @@ def env_runner(env, policy, num_local_steps, summary_writer):
             c, h = last_features
 
             fetched = policy.act(
-                    last_state, last_action, c, h, condition)
-            action, value_, features = fetched[0], fetched[1], fetched[2:]
+                    last_state, last_action, c, h, condition, z)
+            action, value_, features = fetched[0], fetched[1], fetched[2:4]
 
             action = [np.argmax(action[name]) for name in env.acs]
             state, reward, terminal, info = env.step(action)
 
             # collect the experience
             rollout.add(last_state, action, reward,
-                        value_, last_features, condition)
+                        value_, last_features, condition, z)
             length += 1
 
             # TODO: discriminator communication to get reward
@@ -222,7 +223,7 @@ def env_runner(env, policy, num_local_steps, summary_writer):
                 summary_writer.add_summary(summary, policy.global_step.eval())
                 summary_writer.flush()
 
-        last_state, condition = env.reset()
+        last_state, condition, z = env.reset()
         logger.debug(
                 "Episode finished. Sum of rewards: {:.5f}." \
                 "Length: {}.".format(rewards, length))

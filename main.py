@@ -48,6 +48,8 @@ def main(_):
     ]
     if args.conditional:
         queue_shapes.append(['conditions', env.observation_shape])
+    else:
+        queue_shapes.append(['z', [args.z_dim]])
 
     for idx, (name, shape) in enumerate(queue_shapes):
         length = env.episode_length

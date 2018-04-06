@@ -24,15 +24,22 @@ class Discriminator(object):
             fake = tf.transpose(fake, [0, 3, 1, 2])
             real = tf.transpose(real, [0, 3, 1, 2])
             self.data_format = "channels_first"
+            channel_idx = 1
         else:
             self.data_format = "channels_last"
+            channel_idx = -1
 
         if norm_fn is not None:
             fake = norm_fn(fake)
             real = norm_fn(real)
 
+        if self.args.conditional:
+            fake = tf.concat([fake, real], axis=channel_idx)
+            real = tf.concat([real, real], axis=channel_idx)
+
         self.fake_in = fake
         self.real_in = real
+
 
         self.real_probs, self.real_logits = self.build_model(self.real_in)
         self.var_list = tf.trainable_variables(self.scope_name)

@@ -50,9 +50,20 @@ class Policy(object):
                 x = tf.concat([x, c], axis=-1)
                 x_shape = list(self.image_shape)
                 x_shape[-1] = int(x.get_shape()[-1])
+
+                self.z = None
             else:
                 self.c = None
                 x_shape = self.image_shape
+
+                # [B, max_time, z_dim]
+                self.z = z = tf.placeholder(
+                        tf.float32, [None, None, self.args.z_dim], name='z')
+
+                z_enc = mlp(
+                        z,
+                        self.lstm_size,
+                        name="z_enc")
 
             x = tf.reshape(x, [-1] + x_shape)
             ac = tf.reshape(ac, [-1, action_num])
@@ -113,6 +124,9 @@ class Policy(object):
             flat_out = tl.flatten(out)
             lstm_in_shape = [batch_size, max_time, flat_out.get_shape()[-1]]
             lstm_in = tf.reshape(flat_out, lstm_in_shape, name="lstm_in")
+
+            if not self.args.conditional:
+                lstm_in += z_enc
             
             self.lstm = tc.BasicLSTMCell(self.lstm_size, state_is_tuple=True)
 
@@ -166,7 +180,7 @@ class Policy(object):
             out = [out[0][0], out[1][0]]
         return out
 
-    def get_feed_dict(self, ob, ac, c, h, condition):
+    def get_feed_dict(self, ob, ac, c, h, condition, z):
         feed_dict = {
                 self.x: [[ob]], # fake batch, time axis
                 self.ac: [[ac]],
@@ -175,14 +189,19 @@ class Policy(object):
         }
         if condition is not None:
             feed_dict.update({ self.c: [[condition]] })
+        if z is not None:
+            feed_dict.update({ self.z: [[z]] })
         return feed_dict
 
-    def act(self, ob, ac, c, h, condition=None):
+    def act(self, ob, ac, c, h, condition=None, z=None):
         sess = tf.get_default_session()
 
-        feed_dict = self.get_feed_dict(ob, ac, c, h, condition)
+        feed_dict = self.get_feed_dict(ob, ac, c, h, condition, z)
 
         fetches = [self.one_hot_samples, self.vf] + self.state_out
+        if not self.args.conditional:
+            fetches += [self.z]
+
         out = sess.run(fetches, feed_dict)
 
         # TODO: need to extract one

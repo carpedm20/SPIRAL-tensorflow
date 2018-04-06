@@ -17,7 +17,7 @@ def new_cmd(session, name, cmd, load_path, shell):
     return name, "tmux send-keys -t {}:{} {} Enter".format(session, name, shlex_quote(cmd))
 
 
-def create_commands(session, args, shell='bash'):
+def create_commands(args, shell='bash'):
     ut.train.prepare_dirs(args)
 
     actual_args = ut.io.get_cmd(as_list=True)
@@ -33,8 +33,8 @@ def create_commands(session, args, shell='bash'):
     ] + actual_args
 
     cmds_map = [
-            ("dummy", "tmux send-keys -t {}:0 Enter".format('spiral')),
-            new_cmd(session, "ps", base_cmd + ["--job_name", "ps"], args.load_path, shell),
+            ("dummy", "tmux send-keys -t {}:0 Enter".format(args.tag)),
+            new_cmd(args.tag, "ps", base_cmd + ["--job_name", "ps"], args.load_path, shell),
     ]
 
     if args.loss == 'l2':
@@ -49,7 +49,7 @@ def create_commands(session, args, shell='bash'):
             cmd = base_cmd[:]
 
         cmd += ["--job_name", "worker", "--task", str(idx)]
-        cmds_map += [new_cmd(session, "w-%d" % idx, cmd, args.load_path, shell)]
+        cmds_map += [new_cmd(args.tag, "w-%d" % idx, cmd, args.load_path, shell)]
 
     tmp_tb_dir = "/".join(sys.executable.split('/')[:-1])
     tmp_tb_path = os.path.join(tmp_tb_dir, "tensorboard")
@@ -60,16 +60,16 @@ def create_commands(session, args, shell='bash'):
         tb = "tensorboard"
     tb_args = [tb, "--logdir", args.log_dir, "--port", "12345"]
 
-    cmds_map += [new_cmd(session, "tb", tb_args, args.load_path, shell)]
-    cmds_map += [new_cmd(session, "htop", ["htop"], args.load_path, shell)]
+    cmds_map += [new_cmd(args.tag, "tb", tb_args, args.load_path, shell)]
+    cmds_map += [new_cmd(args.tag, "htop", ["htop"], args.load_path, shell)]
 
     windows = [v[0] for v in cmds_map]
 
     notes = []
     cmds = []
 
-    notes += ["Use `tmux attach -t {}` to watch process output".format(session)]
-    notes += ["Use `tmux kill-session -t {}` to kill the job".format(session)]
+    notes += ["Use `tmux attach -t {}` to watch process output".format(args.tag)]
+    notes += ["Use `tmux kill-session -t {}` to kill the job".format(args.tag)]
 
     notes += ["Point your browser to http://localhost:12345 to see Tensorboard"]
 
@@ -78,11 +78,11 @@ def create_commands(session, args, shell='bash'):
             f"kill $( lsof -i:{args.tb_port} -t ) > /dev/null 2>&1",
             # kill any processes using ps / worker ports
             f"kill $( lsof -i:{args.start_port}-{args.num_workers + args.start_port} -t ) > /dev/null 2>&1",
-            f"tmux kill-session -t {session}",
-            f"tmux new-session -s {session} -n {windows[0]} -d {shell}",
+            f"tmux kill-session -t {args.tag}",
+            f"tmux new-session -s {args.tag} -n {windows[0]} -d {shell}",
     ]
     for w in windows[1:]:
-        cmds += ["tmux new-window -t {} -n {} {}".format(session, w, shell)]
+        cmds += ["tmux new-window -t {} -n {} {}".format(args.tag, w, shell)]
     cmds += ["sleep 1"]
 
     for window, cmd in cmds_map:
@@ -92,7 +92,7 @@ def create_commands(session, args, shell='bash'):
 
 
 def run(args):
-    cmds, notes = create_commands("spiral", args)
+    cmds, notes = create_commands(args)
     if args.dry_run:
         print("Dry-run mode due to -n flag, otherwise the following commands would be executed:")
     else:

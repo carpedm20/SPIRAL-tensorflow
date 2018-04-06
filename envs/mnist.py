@@ -41,10 +41,6 @@ class MNIST(Environment):
 
         self.prepare_mnist()
 
-        with open(args.brush_path) as fp:
-            self.bi = brush.BrushInfo(fp.read())
-        self.b = brush.Brush(self.bi)
-
         # jump
         self.jumps = [0, 1]
 
@@ -94,9 +90,19 @@ class MNIST(Environment):
         self.s.flood_fill(0, 0, (255, 255, 255), (0, 0, 64, 64), 0, self.s)
         self.s.begin_atomic()
 
+        with open(self.args.brush_path) as fp:
+            self.bi = brush.BrushInfo(fp.read())
+        self.b = brush.Brush(self.bi)
+
         self._step = 0
         self.s_x, self.s_y = None, None
-        return self.state, self.random_target
+
+        if self.args.conditional:
+            self.z = None
+        else:
+            self.z = np.random.uniform(-0.5, 0.5, size=self.args.z_dim)
+
+        return self.state, self.random_target, self.z
 
     def draw(self, ac, s=None, dtime=1):
         if s is None:
@@ -128,11 +134,15 @@ class MNIST(Environment):
         if 'size' in self.action_sizes:
             self.b.brushinfo.set_base_value('radius_logarithmic', size)
 
-        if self.s_x is None and self.s_y is None:
+        if (self.s_x is None and self.s_y is None) or \
+                ('jump' in self.action_sizes and jump):
+            # when self._step == 0
             self.s_x, self.s_y = 0, 0
-        if 'jump' in self.action_sizes and jump:
-            self._draw(self.s_x, self.s_y, 0, 0, 0, size, color, dtime)
+            # when jump
             pressure = 0
+            self._stroke_to(self.s_x, self.s_y, pressure)
+        else:
+            self._stroke_to(self.s_x, self.s_y, pressure)
 
         self._draw(x, y, c_x, c_y, pressure, size, color, dtime)
 
@@ -140,16 +150,10 @@ class MNIST(Environment):
               pressure, size, color, dtime):
         end_pressure = pressure
 
-        if 'control' not in self.action_sizes:
+        # if straight line or jump
+        if 'control' not in self.action_sizes or pressure == 0:
             self.b.stroke_to(
                     self.s.backend, x, y, pressure, 0, 0, dtime)
-        elif pressure == 0:
-            color = self.b.brushinfo.get_color_rgb()
-
-            self.b.brushinfo.set_color_rgb((255, 255, 255))
-            self.b.stroke_to(
-                    self.s.backend, x, y, pressure, c_x, c_y, 0)
-            self.b.brushinfo.set_color_rgb(color)
         else:
             end_pressure = self.curve(
                     c_x, c_y, self.s_x, self.s_y, x, y, pressure)
@@ -208,8 +212,7 @@ class MNIST(Environment):
 
         return pressure
 
-    def _stroke_to(self, x, y, pressure):
-        duration = 0.1
+    def _stroke_to(self, x, y, pressure, duration=0.1):
         self.b.stroke_to(
                 self.s.backend,
                 x, y,
@@ -231,7 +234,7 @@ class MNIST(Environment):
         if terminal:
             if self.conditional:
                 reward = 1
-                reward = - utils.l2(self.state, self.random_target) \
+                reward += - utils.l2(self.state, self.random_target) \
                         / np.prod(self.observation_shape)
             else:
                 reward = 0

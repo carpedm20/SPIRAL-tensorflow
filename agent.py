@@ -222,9 +222,10 @@ class Agent(object):
             summaries.append(
                     tf.summary.image("target", image_reshaper(target)))
 
-            l2_loss = tf.reduce_sum((pi.x[:,-1] - pi.c[:,-1])**2, [1,2,3])
+            self.l2_loss = tf.sqrt(1e-8 +
+                    tf.reduce_sum(((pi.x[:,-1] - pi.c[:,-1])/255.)**2, [-3,-2,-1]))
             summaries.append(
-                    tf.summary.scalar("model/l2_loss", tf.reduce_mean(l2_loss)))
+                    tf.summary.scalar("model/l2_loss", tf.reduce_mean(self.l2_loss)))
 
         self.summary_op = tf.summary.merge(summaries)
         grads, _ = tf.clip_by_global_norm(grads, self.args.grad_clip)
@@ -362,9 +363,14 @@ class Agent(object):
                 feed_dict.update({
                         self.global_network.samples[name]: name_a,
                 })
+
         if self.args.conditional:
             feed_dict.update({
                     self.global_network.c: batch.c,
+            })
+        else:
+            feed_dict.update({
+                    self.global_network.z: batch.z,
             })
 
         #################
