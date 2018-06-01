@@ -36,6 +36,7 @@ env_arg.add_argument('--location_size', default=32, type=int)
 env_arg.add_argument('--color_channel', default=3, type=int, choices=[3, 1])
 env_arg.add_argument('--mnist_nums', default='0,1,2,3,4,5,6,7,8,9', type=ut.args.int_list)
 env_arg.add_argument('--brush_path', default='assets/brushes/dry_brush.myb', type=str)
+env_arg.add_argument('--conditional', default=True, type=ut.args.str2bool)
 
 
 # train

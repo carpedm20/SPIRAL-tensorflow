@@ -55,7 +55,10 @@ class Simple(Environment):
                 'RGB', (self.width, self.height), self.background_color)
         self.drawer = ImageDraw.Draw(self.image)
         self._step = 0
-        return self.state, self.random_target
+
+        # TODO(taehoon): z
+        self.z = None
+        return self.state, self.random_target, self.z
 
     def draw(self, ac, drawer=None):
         if drawer is None:
